@@ -7,5 +7,6 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import App from './App.vue'
 
 let app = createApp(App);
+
 app.use(createPinia());
 app.mount('#app')

@@ -1,26 +1,26 @@
-import {
-    DxTextBox,
-    DxSelectBox,
-    DxNumberBox,
-    DxDateBox,
-    DxTagBox,
-    DxFileUploader,
-    DxCheckBox,
-    DxRadioGroup,
-    DxSwitch,
-    DxTextArea
-} from 'devextreme-vue'
+import { markRaw, defineAsyncComponent } from 'vue';
+import CustomStore from 'devextreme/data/custom_store';
+import {ElementDefinition} from '../types/builder';
 
+const DxTextBox = defineAsyncComponent(() => import('devextreme-vue/text-box'));
+const DxSelectBox = defineAsyncComponent(() => import('devextreme-vue/select-box'));
+const DxNumberBox = defineAsyncComponent(() => import('devextreme-vue/number-box'));
+const DxDateBox = defineAsyncComponent(() => import('devextreme-vue/date-box'));
+const DxTagBox = defineAsyncComponent(() => import('devextreme-vue/tag-box'));
+const DxFileUploader = defineAsyncComponent(() => import('devextreme-vue/file-uploader'));
+const DxCheckBox = defineAsyncComponent(() => import('devextreme-vue/check-box'));
+const DxRadioGroup = defineAsyncComponent(() => import('devextreme-vue/radio-group'));
+const DxSwitch = defineAsyncComponent(() => import('devextreme-vue/switch'));
+const DxTextArea = defineAsyncComponent(() => import('devextreme-vue/text-area'));
 
-import { markRaw } from 'vue'
-import CustomStore from 'devextreme/data/custom_store'
 
 const defaults = {
     labelMode: 'floating',
-    resizeEnabled: true
-}
+    resizeEnabled: true,
+};
 
-const ComponentTypes = [
+// Define an array of component types with proper typings
+const ElementTypes: ElementDefinition[] = [
     {
         name: 'TextInput',
         title: 'Text Input',
@@ -28,8 +28,8 @@ const ComponentTypes = [
         icon: 'bi bi-alphabet h3',
         control: markRaw(DxTextBox),
         props: {
-            label: 'Text Input'
-        }
+            label: 'Text Input',
+        },
     },
     {
         name: 'EmailInput',
@@ -38,8 +38,8 @@ const ComponentTypes = [
         icon: 'bi bi-envelope-at h3',
         control: markRaw(DxTextBox),
         props: {
-            label: 'Email Input'
-        }
+            label: 'Email Input',
+        },
     },
     {
         name: 'MultiLineTextInput',
@@ -48,8 +48,8 @@ const ComponentTypes = [
         icon: 'bi bi-alphabet h3',
         control: markRaw(DxTextArea),
         props: {
-            label: 'Text Area'
-        }
+            label: 'Text Area',
+        },
     },
     {
         name: 'Dropdown',
@@ -58,8 +58,8 @@ const ComponentTypes = [
         icon: 'bi bi-chevron-bar-down h3',
         control: markRaw(DxSelectBox),
         props: {
-            label: 'Select Input'
-        }
+            label: 'Select Input',
+        },
     },
     {
         name: 'DateInput',
@@ -68,8 +68,8 @@ const ComponentTypes = [
         icon: 'bi bi-calendar h3',
         control: markRaw(DxDateBox),
         props: {
-            label: 'Date Input'
-        }
+            label: 'Date Input',
+        },
     },
     {
         name: 'NumberInput',
@@ -77,9 +77,9 @@ const ComponentTypes = [
         description: 'Number Box Control',
         icon: 'bi bi-123 h3',
         control: markRaw(DxNumberBox),
-        props: {   
-            label: 'Numeric Input'
-        }
+        props: {
+            label: 'Numeric Input',
+        },
     },
     {
         name: 'TagsInput',
@@ -88,9 +88,8 @@ const ComponentTypes = [
         icon: 'bi bi-tags h3',
         control: markRaw(DxTagBox),
         props: {
-            
-            label: 'Tag Input'
-        }
+            label: 'Tag Input',
+        },
     },
     {
         name: 'FileUploader',
@@ -99,8 +98,8 @@ const ComponentTypes = [
         icon: 'bi bi-file-earmark h3',
         control: markRaw(DxFileUploader),
         props: {
-            label: 'File Uploader'
-        }
+            label: 'File Uploader',
+        },
     },
     {
         name: 'Checkbox',
@@ -109,8 +108,8 @@ const ComponentTypes = [
         icon: 'bi bi-check2-square h3',
         control: markRaw(DxCheckBox),
         props: {
-            label: 'Checkbox'
-        }
+            label: 'Checkbox',
+        },
     },
     {
         name: 'Switch',
@@ -119,8 +118,8 @@ const ComponentTypes = [
         icon: 'bi bi-toggle-on h3',
         control: markRaw(DxSwitch),
         props: {
-            label: 'Switch'
-        }
+            label: 'Switch',
+        },
     },
     {
         name: 'RadioGroup',
@@ -129,27 +128,27 @@ const ComponentTypes = [
         icon: 'bi bi-toggle-on h3',
         control: markRaw(DxRadioGroup),
         props: {
-            label: 'Radio Group'
-        }
-    }
-]
+            label: 'Radio Group',
+        },
+    },
+];
 
-const ComponentTypeDataSource = new CustomStore({
+// Define the CustomStore using TypeScript
+const ElementTypeDataSource = new CustomStore({
     loadMode: 'raw',
     key: 'id',
     load: () => {
-
-        // This is done to dynamically assign an id to the items in the array for to be placed into the dev-extreme datasource
-        ComponentTypes.forEach((item, index) => {
+        // Dynamically assign an id to the items in the array for placement into the dev-extreme datasource
+        ElementTypes.forEach((item, index) => {
             item.typeId = index + 1;
             item.type = 'control';
-        })
+        });
 
-        return Promise.resolve(ComponentTypes)
-    }
+        return Promise.resolve(ElementTypes);
+    },
 });
 
 export {
-    ComponentTypes,
-    ComponentTypeDataSource
+    ElementTypes,
+    ElementTypeDataSource
 };

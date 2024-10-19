@@ -1,12 +1,6 @@
-<script>
+<script setup lang="ts">
 import Builder from './components/Builder.vue'
 
-export default{
-  name: 'App',
-  components: {
-    Builder
-  }
-}
 </script>
 
 <template>
@@ -15,8 +9,5 @@ export default{
 
 <style>
 
-body{
-  overflow: hidden;
-}
 
 </style>

@@ -2,7 +2,7 @@
     <div v-html="value"></div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 
 defineProps({
     value: {

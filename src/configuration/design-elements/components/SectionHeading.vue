@@ -2,7 +2,7 @@
     <h2 :style="style"> {{ value }} </h2>
 </template>
 
-<script setup>
+<script setup lang="ts">
 
 import { computed } from 'vue'
 const props = defineProps({

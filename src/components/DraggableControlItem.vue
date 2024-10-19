@@ -15,8 +15,8 @@
     </div>
 </template>
 
-<script setup>
-const props = defineProps({
+<script setup lang="ts">
+defineProps({
     descriptor: {
         type: Object,
         required: true
@@ -26,15 +26,37 @@ const props = defineProps({
 
 <style lang="scss" scoped>
 
-.custom-card{
-    white-space: pre-wrap;
-    margin: 5px;
+.custom-card {
+  white-space: pre-wrap;
+  margin: 5px;
+  width: 100%; /* Ensure the card takes up the full width */
+  box-sizing: border-box; /* Include padding and borders in the width/height */
+  min-height: 60px; /* Set a consistent minimum height */
 }
+
 .control-descriptor {
-    &_icon-holder {
-        background-color: lightgray;
-        margin-right: 5%;
-        margin-left: 1%;
-    }
+  &_icon-holder {
+    background-color: lightgray;
+    margin-right: 5%;
+    margin-left: 1%;
+    display: flex;
+    align-items: center; /* Ensures the icon is vertically centered */
+    justify-content: center; /* Centers the icon horizontally */
+    width: 50px; /* Set a fixed width for the icon holder */
+    height: 50px; /* Set a fixed height for the icon holder */
+  }
 }
+
+
+//.custom-card{
+//    white-space: pre-wrap;
+//    margin: 5px;
+//}
+//.control-descriptor {
+//    &_icon-holder {
+//        background-color: lightgray;
+//        margin-right: 5%;
+//        margin-left: 1%;
+//    }
+//}
 </style>

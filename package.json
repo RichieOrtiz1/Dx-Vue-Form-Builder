@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -18,14 +18,20 @@
     "@vueuse/core": "^10.9.0",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
-    "devextreme": "23.2.5",
-    "devextreme-vue": "23.2.5",
+    "devextreme": "23.2.7",
+    "devextreme-vue": "23.2.7",
     "pinia": "^2.1.7",
     "sass": "^1.72.0",
-    "vue": "^3.4.21"
+    "vue": "^3.5.10"
   },
   "devDependencies": {
+    "@types/node": "^22.7.5",
     "@vitejs/plugin-vue": "^5.0.4",
-    "vite": "^5.2.0"
+    "@vue/tsconfig": "^0.5.1",
+    "@vueuse/components": "^11.1.0",
+    "pinia-plugin-persistedstate": "^4.1.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.2.0",
+    "vue-tsc": "^2.0.12"
   }
 }
