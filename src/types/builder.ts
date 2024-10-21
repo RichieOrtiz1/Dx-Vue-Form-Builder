@@ -1,12 +1,15 @@
+export enum ElementClassification {
+    CONTROL = 'Control',
+    DESIGN = 'Design'
+}
+
 export interface ElementDefinition {
-    name: string;
+    classification: ElementClassification;
     title: string;
     description?: string;
     icon: string;
-    control: any;
+    type: string;
     props: Record<string, any>;
-    typeId?: number;
-    type?: string;
 }
 
 
@@ -16,17 +19,14 @@ export interface Column {
 
 export interface FormElement extends ElementDefinition{
     uniqueId: string;
-    type: string;
     childComponents?: FormElement[];
     columnCount?: number;
     columns?: Column[];
 }
 
-export interface DesignElement extends ElementDefinition {
-    rendersInSortable: boolean;
-}
 
 export interface FormConfiguration {
     labelMode: string;
 }
+
 

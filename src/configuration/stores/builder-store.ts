@@ -1,5 +1,5 @@
 import {defineStore} from 'pinia';
-import {reactive} from 'vue';
+import {computed, reactive} from 'vue';
 import {FormConfiguration, FormElement, Column} from '../../types/builder';
 
 export const useBuilderStore = defineStore('formConfigStore', () => {
@@ -76,10 +76,15 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         element.columnCount = element.columns?.length;
     };
 
+    const schemaJson = computed(() => {
+        return JSON.stringify(formElements.flat());
+    });
+
 
     return {
         formConfiguration,
         formElements,
+        schemaJson,
         fetchChildComponents,
         setChildComponents,
         initializeColumns,

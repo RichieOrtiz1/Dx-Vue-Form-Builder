@@ -1,18 +1,16 @@
 // src/composables/useElementContainer.ts
-import { reactive, watch } from 'vue';
+import { ref, watch} from 'vue';
 import { useBuilderStore } from '../configuration/stores/builder-store';
 
 export const useElementContainer = (uniqueId: string) => {
     const store = useBuilderStore();
 
-    const container = reactive({
-        elements: store.fetchChildComponents(uniqueId)
-    });
+    const container = ref(store.fetchChildComponents(uniqueId));
 
     watch(
-        () => container,
-        (newVal) => {
-            store.setChildComponents(uniqueId, newVal.elements);
+        () => container.value,
+        (updated) => {
+            store.setChildComponents(uniqueId, updated);
         },
         { deep: true }
     );
