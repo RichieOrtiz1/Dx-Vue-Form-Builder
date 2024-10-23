@@ -1,26 +1,29 @@
 <template>
-    <div class="card custom-card overflow-visible">
-        <div class="card-block control-descriptor d-flex align-items-center">
-            <div class="control-descriptor_icon-holder text-center rounded-3 p-1">
-                <i :class="descriptor.icon" class="card-img-left control-descriptor_icon p-1 m-0"></i>
-            </div>
-            <div class="control-descriptor_text">
-                <p class="control-descriptor_text_title d-flex position-relative mb-1 fw-bold">
-                    {{ descriptor.title }}
-                </p>
+  <div class="card custom-card overflow-visible">
+    <div class="card-block control-descriptor d-flex align-items-center">
+      <div class="control-descriptor_icon-holder text-center rounded-3 p-1">
+        <i :class="descriptor.icon" class="card-img-left control-descriptor_icon p-1 m-0"></i>
+      </div>
+      <div class="control-descriptor_text">
+        <p class="control-descriptor_text_title d-flex position-relative mb-1 fw-bold">
+          {{ descriptor.title }}
+        </p>
 
-                <p class="control-descriptor_text_description d-flex position-relative mb-0">{{ descriptor.description }}</p>
-            </div>
-        </div>
+        <p class="control-descriptor_text_description d-flex position-relative mb-0">{{ descriptor.description }}</p>
+      </div>
     </div>
+  </div>
 </template>
 
 <script setup lang="ts">
+import {PropType} from 'vue';
+import {ElementDefinition} from '../types/builder';
+
 defineProps({
-    descriptor: {
-        type: Object,
-        required: true
-    }
+  descriptor: {
+    type: Object as PropType<ElementDefinition>,
+    required: true
+  }
 })
 </script>
 
@@ -32,6 +35,7 @@ defineProps({
   width: 100%; /* Ensure the card takes up the full width */
   box-sizing: border-box; /* Include padding and borders in the width/height */
   min-height: 60px; /* Set a consistent minimum height */
+  cursor: grab; /* Change the cursor to a grab icon */
 }
 
 .control-descriptor {

@@ -1,3 +1,5 @@
+import {LayoutItem} from 'vue3-grid-layout-next/dist/helpers/utils';
+
 export enum ElementClassification {
     CONTROL = 'Control',
     DESIGN = 'Design'
@@ -19,14 +21,26 @@ export interface Column {
 
 export interface FormElement extends ElementDefinition{
     uniqueId: string;
-    childComponents?: FormElement[];
+    colspan?: number;
+    childComponents?: GridLayoutItem[];
     columnCount?: number;
     columns?: Column[];
 }
 
 
 export interface FormConfiguration {
-    labelMode: string;
+    labelMode: string
 }
+
+export interface UniqueIdProp {
+    uniqueId: string;
+}
+
+export interface ElementWrapperProps extends UniqueIdProp {
+    cssClasses?: string;
+    showDefaultPlaceholder?: boolean;
+}
+
+export interface GridLayoutItem extends FormElement, LayoutItem{}
 
 

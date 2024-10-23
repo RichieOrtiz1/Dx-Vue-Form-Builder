@@ -1,6 +1,6 @@
 import {defineStore} from 'pinia';
-import {computed, reactive} from 'vue';
-import {FormConfiguration, FormElement, Column} from '../../types/builder';
+import {computed, reactive, ref} from 'vue';
+import {FormConfiguration, Column, GridLayoutItem} from '../../types/builder';
 
 export const useBuilderStore = defineStore('formConfigStore', () => {
     // Reactive State
@@ -8,12 +8,13 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         labelMode: 'outside',
     });
 
-    const formElements = reactive<FormElement[]>([]);
+    const isDragging = ref(false);
+    const formElements = reactive<GridLayoutItem[]>([]);
 
     // Actions
 
     // Fetch a specific element by uniqueId
-    const fetchElement = (uniqueId: string): FormElement | undefined => {
+    const fetchElement = (uniqueId: string): GridLayoutItem | undefined => {
         const stack = [...formElements];
         while (stack.length > 0) {
             const current = stack.pop();
@@ -27,11 +28,11 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         return undefined;
     };
 
-    const fetchChildComponents = (uniqueId: string): FormElement[] => {
+    const fetchChildComponents = (uniqueId: string): GridLayoutItem[] => {
         return fetchElement(uniqueId)?.childComponents ?? [];
     };
 
-    const setChildComponents = (uniqueId: string, components: FormElement[]) => {
+    const setChildComponents = (uniqueId: string, components: GridLayoutItem[]) => {
         const element = fetchElement(uniqueId);
         if (element) {
             element.childComponents = components;
@@ -90,6 +91,7 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         initializeColumns,
         fetchColumns,
         setColumns,
-        removeColumn
+        removeColumn,
+        isDragging
     };
 });

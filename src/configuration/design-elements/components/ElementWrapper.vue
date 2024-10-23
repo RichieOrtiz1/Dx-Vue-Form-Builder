@@ -1,574 +1,579 @@
 <template>
-  <div class="d-flex flex-grow-1">
-    <DxSortable
-        v-model:data="childElements"
-        :class="calculatedClasses"
-        drop-feedback-mode="indicate"
-        filter=".container-sortable-item"
-        group="formItemGroup"
-        @add="onFieldAdded"
-        @remove="onRemoved"
-        @reorder="onReorder"
-        @drag-start="onDragStart"
-        @drag-end="onDragEnd"
+  <div class="container-fluid">
+    <div
+        class="drop-zone"
+        @drop="onDrop"
+        @dragover.prevent
     >
-      <div v-if="showDefaultPlaceholder && childElements.length === 0"
-           class="h-100 d-flex justify-content-center align-items-center placeholder-container">
-        <p class="text-center" style="max-width: 50%">Drag sections, columns, or controls here to build your form</p>
-      </div>
-      <div v-else>
-        <slot name="placeholder"/>
-      </div>
-      <div v-for="(field, index) in childElements"
-           :key="`ctrl-${index}`"
-           :class="
-         {
-           'editing': editingField === field && !isDragging,
-           'bottom-padding': isDragging,
-           'field-edit-wrapper': !isDragging
-         }"
-           class="d-flex flex-column bg-white"
-           @click="editField(field)"
+      <GridLayout
+          v-model:layout="gridLayout"
+          :col-num="12"
+          :row-height="30"
+          class="min-vh-100"
+          :is-draggable="true"
+          :is-resizable="true"
+          :responsive="true"
+          :vertical-compact="true"
+          @layout-updated="onLayoutUpdated"
       >
-        <OnClickOutside class="container-sortable-item" @trigger="controlBarOutsideClick(field)">
-          <div style="min-height: 1px">
-            <div class="control-bar"
-                 @click="editField(field)">
-              <DxButtonGroup
-                  :key="generateKey(field, index + 1)"
-                  :items="fieldEditButtons"
-                  key-expr="operation" position="after"
-                  styling-mode="text"
-                  @item-click="fieldOperationSelected($event, field)"/>
-              <span class="fw-bold">Control Type: {{ field.title }}</span>
+        <GridItem
+            v-for="(element, index) in containerElements"
+            :key="element.uniqueId"
+            :x="element.x"
+            :y="element.y"
+            :i="element.uniqueId"
+            :w="element.w || 6"
+            :h="element.h || 1"
+            @resize="resize"
+            @move="move"
+        >
+          <div
+              class="position-relative dropped-item"
+              @mouseenter="showControlBar(index)"
+              @mouseleave="hideControlBar()"
+          >
+            <div v-if="isHovered(index)" class="control-bar">
+              <div class="col-count-overlay">{{ element.colspan }}</div>
+              <div class="control-buttons">
+                <button class="control-btn" @click="cloneItem(index)">
+                  <i class="bi bi-copy"></i>
+                </button>
+                <button class="control-btn" @click="deleteItem(index)">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
             </div>
-            <component
-                :is="resolveComponent(field)"
-                :id="field.uniqueId"
-                :key="field.uniqueId"
-                v-bind="field.props"
-            />
+            <component :is="resolveComponent(element)" v-bind="element.props" />
           </div>
-        </OnClickOutside>
-      </div>
-    </DxSortable>
-  </div>
+        </GridItem>
+      </GridLayout>
+    </div>
 
+    <div v-if="containerElements.length === 0 && !store.isDragging" class="empty-placeholder">
+      Drag items here to start building your form
+    </div>
+  </div>
 </template>
 
 <script lang="ts" setup>
-import {computed, defineProps, ref, watch} from 'vue';
-import {DxSortable, DxSortableTypes} from 'devextreme-vue/sortable';
-import {DxButtonGroup, DxButtonGroupTypes} from 'devextreme-vue/button-group';
-import {OnClickOutside} from '@vueuse/components';
-import {ElementClassification, FormElement} from '../../../types/builder';
-import {useDraggingTracking} from '../../../composables/useDragging';
-import {resolveControlComponent} from '../../form-components';
-import {resolveDesignComponent} from "../design-elements";
-import {useCloned} from "@vueuse/core";
+import { defineProps, reactive, ref } from 'vue';
+import { GridLayout, GridItem} from 'vue3-grid-layout-next';
+import { resolveControlComponent } from '../../form-components';
+import { resolveDesignComponent } from '../design-elements';
+import {ElementClassification, ElementWrapperProps, FormElement, GridLayoutItem} from '../../../types/builder';
+import { useElementClone } from '../../../composables/useElementClone';
+import { useBuilderStore } from '../../stores/builder-store';
+import {LayoutItem} from 'vue3-grid-layout-next/dist/helpers/utils';
+import {useUUID} from '../../../composables/useUUID';
 
-const {cssClasses, containerElements} = defineProps({
-  id: {
-    required: true,
-    type: String
-  },
-  cssClasses: {
-    type: String,
-    default: ''
-  },
-  containerElements: {
-    type: Array as () => FormElement[],
-    required: true
-  },
-  showDefaultPlaceholder: {
-    type: Boolean,
-    default: false
-  }
+defineProps<ElementWrapperProps>();
+const store = useBuilderStore();
+const gridLayout = ref<any[]>([]);
+
+const containerElements = defineModel<GridLayoutItem[]>('containerElements', { required: true });
+
+const state = reactive({
+  hoveredItemIndex: null as number | null,
+  resizingIndex: null as number | null,
+  initialWidth: 0,
+  startX: 0,
 });
 
-const emit = defineEmits(['update:containerElements']);
+const resolveComponent = (element: FormElement): any => {
+  return element.classification === ElementClassification.DESIGN
+      ? resolveDesignComponent(element.type)
+      : resolveControlComponent(element.type);
+};
 
-const childElements = computed({
-  get: () => containerElements || [],
-  set: (value: FormElement[]) => {
-    emit('update:containerElements', value);
+
+// Update layout when grid items are resized or repositioned
+const onLayoutUpdated = (newLayout: LayoutItem[]): void => {
+  newLayout.forEach((layoutItem: LayoutItem) => {
+
+    const item = containerElements.value.find(x => x.uniqueId === layoutItem.i)!;
+    item.x = layoutItem.x;
+    item.y = layoutItem.y;
+    item.colspan = layoutItem.w;
+    item.w = layoutItem.w;
+    item.h = layoutItem.h;
+  });
+};
+
+const {generate} = useUUID();
+// Handle the native drop event
+const onDrop = (event: DragEvent): void => {
+  const draggedElementData = event.dataTransfer?.getData('text/plain');
+  if (draggedElementData) {
+    const newElement = JSON.parse(draggedElementData); // Assuming element data is serialized
+    newElement.x = 0;
+    newElement.y = 0;
+    newElement.uniqueId = generate();
+    newElement.colspan = 6;
+    newElement.w = 6;
+    newElement.h = 1;
+    containerElements.value.push(newElement);
+    gridLayout.value.push({
+      i: newElement.uniqueId,
+      x: newElement.x!,
+      y: newElement.y!,
+      w: newElement.colspan!,
+      h: 1,
+    });
   }
-});
-
-const {isDragging, start, end} = useDraggingTracking();
-
-const fieldEditButtons = ref([{
-  icon: 'copy',
-  hint: 'Clone',
-  operation: 'Clone'
-
-}, {
-  icon: 'trash',
-  hint: 'Delete',
-  operation: 'Delete'
-}]);
-
-const editingField = ref<FormElement | null>(null);
-
-const controlBarOutsideClick = (field: FormElement) => {
-  if (editingField.value === field) {
-    editingField.value = null;
-  }
 };
 
-
-const cloneFormItem = (item: FormElement) => {
-  const {cloned} = useCloned(item);
-  cloned.value.uniqueId = generateUniqueValue();
-  return cloned.value;
+const showControlBar = (itemIndex: number): void => {
+  state.hoveredItemIndex = itemIndex;
 };
 
-const onFieldAdded = (e: DxSortableTypes.AddEvent) => {
-  let item = e.itemData;
-  if (!item) {
-    item = e.fromData.splice(e.fromIndex - 1, 1)[0];
-  }
-  e.toData.splice(e.toIndex, 0, cloneFormItem(item));
+const hideControlBar = (): void => {
+  state.hoveredItemIndex = null;
 };
 
-const onDragStart = (e: DxSortableTypes.DragStartEvent) => {
-  start();
-  e.itemData = e.fromData[e.fromIndex];
+const isHovered = (itemIndex: number): boolean => {
+  return state.hoveredItemIndex === itemIndex;
 };
 
-const onDragEnd = (_e: DxSortableTypes.DragEndEvent) => {
-  end();
+const cloneItem = (itemIndex: number): void => {
+  const element = containerElements.value[itemIndex];
+  containerElements.value.push(useElementClone(element));
 };
 
-const onReorder = (e: DxSortableTypes.ReorderEvent) => {
-  e.fromData.splice(e.fromIndex, 1);
-  e.toData.splice(e.toIndex, 1, e.itemData);
+const deleteItem = (itemIndex: number): void => {
+  containerElements.value.splice(itemIndex, 1);
+  gridLayout.value.splice(itemIndex, 1);
 };
 
-const onRemoved = (e: DxSortableTypes.RemoveEvent) => {
-  e.fromData.splice(e.fromIndex, 1);
+const resize = (i: string | number, h: number, w: number): void => {
+  const item = containerElements.value.find(x => x.uniqueId === i)!;
+  item.h = h;
+  item.w = w;
+  item.colspan = w;
 };
 
-const generateKey = (item: FormElement, index: number) => {
-  return `${item.uniqueId}.${index}`;
+const move = (i: string | number, x: number, y: number): void => {
+  const item = containerElements.value.find(x => x.uniqueId === i)!;
+  item.x = x;
+  item.y = y;
 };
-
-const editField = (field: FormElement) => {
-  editingField.value = field;
-};
-
-
-const fieldOperationSelected = (e: DxButtonGroupTypes.ItemClickEvent, selectedField: FormElement) => {
-  let index = childElements.value.indexOf(selectedField);
-
-  if (e.itemData.operation === 'Delete') {
-    childElements.value.splice(index, 1);
-  } else {
-    childElements.value.splice(index + 1, 0, cloneFormItem(selectedField));
-  }
-
-  e.event?.stopPropagation();
-};
-
-
-const generateUniqueValue = () => {
-  return (Date.now() + Math.random()).toString();
-};
-
-
-const calculatedClasses = computed(() => {
-  return isDragging.value ? `${cssClasses} bottom-padding` : cssClasses;
-});
-
-const resolveComponent = (element: FormElement) => {
-  return element.classification === ElementClassification.CONTROL ?
-      resolveControlComponent(element.type) : resolveDesignComponent(element.type);
-};
-
-
-watch(() => isDragging.value, (newValue) => {
-  if (newValue) {
-    editingField.value = null;
-  }
-  console.log(isDragging.value);
-});
 </script>
 
-<style scoped lang="scss">
+<style scoped>
+:deep(.dropped-item) {
+  cursor: grab;
+  position: relative;
+  touch-action: none;
+}
+
+:deep(.vue-grid-item){
+  touch-action: none;
+}
+
 .control-bar {
-  display: none;
+  display: flex;
+  max-width: 98%;
+  align-items: center;
+  justify-content: space-between;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background-color: rgba(0, 255, 0, 0.1);
+  border: 1px solid #ccc;
+  padding: 5px;
+  z-index: 1;
+  border-radius: 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-.placeholder-container {
-  background-color: whitesmoke;
+.col-count-overlay {
+  background-color: #fff;
+  border: 1px solid #ccc;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #333;
 }
 
-@mixin edit-control {
-  z-index: 100;
-  background-color: white;
-  border: 1px solid lightsteelblue;
-  position: relative;
-
-  .control-bar {
-    display: flex;
-    justify-content: space-between;
-    padding-right: 10px;
-    background-color: lightsteelblue;
-    color: white;
-
-    .dx-icon {
-      color: white;
-    }
-  }
-  :hover {
-    cursor: pointer;
-  }
-
+.control-buttons {
+  display: flex;
+  gap: 5px;
 }
 
-.editing {
-  @include edit-control;
+.control-bar button {
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 5px;
+  color: #333;
 }
 
-.field-edit-wrapper:hover {
-  @include edit-control;
+.control-bar button:hover {
+  background-color: #ddd;
 }
 
-$form-placeholder-color: #888;
-$form-placeholder-font-size: 1.2rem;
-$form-placeholder-border-color: #ccc;
-
-.form-canvas {
-  height: 100%;
-  position: relative;
-  overflow-y: auto;
-  padding: 25px;
-
-  .placeholder-text {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: $form-placeholder-font-size;
-    color: $form-placeholder-color;
-  }
-
-  .form-canvas {
-    height: 100%;
-    padding: 25px;
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto; /* Allows scroll inside the form canvas */
-  }
-
-}
-
-
-.form-scroll-box {
-  flex-grow: 1; /* Ensures this box takes available space */
-  overflow-y: auto; /* Enables scrolling */
-  scrollbar-width: thin; /* For Firefox */
-
-  &::-webkit-scrollbar {
-    width: 6px; /* For WebKit browsers */
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 0, 0, 0.3);
-    border-radius: 3px;
-  }
-}
-
-.bottom-padding {
-  padding-bottom: 10px;
-  padding-top: 10px;
+.empty-placeholder {
+  padding: 20px;
+  color: #888;
+  text-align: center;
+  font-size: 16px;
+  border: 1px dashed #ccc;
+  background-color: #f7f7f7;
+  border-radius: 8px;
+  pointer-events: none;
 }
 </style>
 
 
 
-<!--<template>-->
-<!--  <div class="d-flex flex-grow-1">-->
-<!--    <DxSortable-->
-<!--        v-model:data="childElements"-->
-<!--        :class="calculatedClasses"-->
-<!--        drop-feedback-mode="indicate"-->
-<!--        filter=".container-sortable-item"-->
-<!--        group="formItemGroup"-->
-<!--        @add="onFieldAdded"-->
-<!--        @remove="onRemoved"-->
-<!--        @reorder="onReorder"-->
-<!--        @drag-start="onDragStart"-->
-<!--        @drag-end="onDragEnd"-->
-<!--    >-->
-<!--      <div v-if="showDefaultPlaceholder && childElements.length === 0"-->
-<!--           class="h-100 d-flex justify-content-center align-items-center placeholder-container">-->
-<!--        <p class="text-center" style="max-width: 50%">Drag sections, columns, or controls here to build your form</p>-->
-<!--      </div>-->
-<!--      <div v-else>-->
-<!--        <slot name="placeholder"/>-->
-<!--      </div>-->
-<!--      <div v-for="(field, index) in childElements"-->
-<!--           :key="`ctrl-${index}`"-->
-<!--           :class="-->
-<!--         {-->
-<!--           'editing': editingField === field && !isDragging,-->
-<!--           'bottom-padding': isDragging,-->
-<!--           'field-edit-wrapper': !isDragging-->
-<!--         }"-->
-<!--           class="d-flex flex-column bg-white"-->
-<!--           @click="editField(field)"-->
-<!--      >-->
-<!--        <OnClickOutside class="container-sortable-item" @trigger="controlBarOutsideClick(field)">-->
-<!--          <div style="min-height: 1px">-->
-<!--            <div class="control-bar"-->
-<!--                 @click="editField(field)">-->
-<!--              <DxButtonGroup-->
-<!--                  :key="generateKey(field, index + 1)"-->
-<!--                  :items="fieldEditButtons"-->
-<!--                  key-expr="operation" position="after"-->
-<!--                  styling-mode="text"-->
-<!--                  @item-click="fieldOperationSelected($event, field)"/>-->
-<!--              <span class="fw-bold">Control Type: {{ field.title }}</span>-->
-<!--            </div>-->
-<!--            <component-->
-<!--                :is="resolveComponent(field)"-->
-<!--                :id="field.uniqueId"-->
-<!--                :key="field.uniqueId"-->
-<!--                v-bind="field.props"-->
-<!--            />-->
-<!--          </div>-->
-<!--        </OnClickOutside>-->
-<!--      </div>-->
-<!--    </DxSortable>-->
-<!--  </div>-->
 
+
+
+
+
+
+
+
+
+
+<!--<template>-->
+<!--  <div class="container-fluid">-->
+<!--    <div class="row">-->
+<!--      <Draggable-->
+<!--          v-model:list="containerElements"-->
+<!--          :group="{ name: 'controls', clone: true, put: true }"-->
+<!--          :class="cssClasses"-->
+<!--          item-key="uniqueId"-->
+<!--          @end="onDragEnd"-->
+<!--          @start="onDragStart"-->
+<!--          :clone="useElementClone"-->
+<!--      >-->
+<!--        <template #item="{ element, index } : {element: FormElement, index: number}">-->
+<!--          <div class="position-relative dropped-item"-->
+<!--               @mouseenter="showControlBar(index)"-->
+<!--               @mouseleave="hideControlBar()">-->
+<!--            &lt;!&ndash; Control Bar &ndash;&gt;-->
+<!--            <div v-if="isHovered(index, null)" class="control-bar">-->
+<!--              <button class="control-btn" @click="editItem(index)"><i class="bi bi-pencil"></i></button>-->
+<!--              <button class="control-btn" @click="cloneItem(index)"><i class="bi bi-copy"></i></button>-->
+<!--              <button class="control-btn" @click="deleteItem(index)"><i class="bi bi-trash"></i></button>-->
+<!--            </div>-->
+
+<!--            <component :is="resolveComponent(element)" v-bind="element.props"/>-->
+<!--          </div>-->
+<!--        </template>-->
+
+<!--        &lt;!&ndash; Placeholder for Empty Dropzone (only show if no items and not dragging) &ndash;&gt;-->
+<!--        <template #footer>-->
+<!--          <div v-if="containerElements.length === 0 && !store.isDragging" class="empty-placeholder">-->
+<!--            Drag items here to start building your form-->
+<!--          </div>-->
+<!--        </template>-->
+<!--      </Draggable>-->
+<!--    </div>-->
+<!--  </div>-->
 <!--</template>-->
 
 <!--<script lang="ts" setup>-->
-<!--import {computed, defineProps, ref, watch} from 'vue';-->
-<!--import {DxSortable, DxSortableTypes} from 'devextreme-vue/sortable';-->
-<!--import {DxButtonGroup, DxButtonGroupTypes} from 'devextreme-vue/button-group';-->
-<!--import {OnClickOutside} from '@vueuse/components';-->
-<!--import {ElementClassification, FormElement} from '../../../types/builder';-->
-<!--import {useDraggingTracking} from '../../../composables/useDragging';-->
+<!--import {defineProps, reactive} from 'vue';-->
+<!--import Draggable from 'vuedraggable';-->
 <!--import {resolveControlComponent} from '../../form-components';-->
-<!--import {resolveDesignComponent} from "../design-elements";-->
-<!--import {useCloned} from "@vueuse/core";-->
+<!--import {resolveDesignComponent} from '../design-elements';-->
+<!--import {ElementClassification, ElementWrapperProps, FormElement} from '../../../types/builder';-->
+<!--import {useElementClone} from '../../../composables/useElementClone';-->
+<!--import {useBuilderStore} from '../../stores/builder-store';-->
 
-<!--const {cssClasses, containerElements} = defineProps({-->
-<!--  id: {-->
-<!--    required: true,-->
-<!--    type: String-->
-<!--  },-->
-<!--  cssClasses: {-->
-<!--    type: String,-->
-<!--    default: ''-->
-<!--  },-->
-<!--  containerElements: {-->
-<!--    type: Array as () => FormElement[],-->
-<!--    required: true-->
-<!--  },-->
-<!--  showDefaultPlaceholder: {-->
-<!--    type: Boolean,-->
-<!--    default: false-->
-<!--  }-->
+<!--const store = useBuilderStore();-->
+
+<!--defineProps<ElementWrapperProps>();-->
+
+
+<!--const state = reactive({-->
+<!--  hoveredItemIndex: null as number | null,-->
+<!--  hoveredSectionIndex: null as number | null-->
 <!--});-->
 
-<!--const emit = defineEmits(['update:containerElements']);-->
-
-<!--const childElements = computed({-->
-<!--  get: () => containerElements || [],-->
-<!--  set: (value: FormElement[]) => {-->
-<!--    emit('update:containerElements', value);-->
-<!--  }-->
-<!--});-->
-
-<!--const {isDragging, start, end} = useDraggingTracking();-->
-
-<!--const fieldEditButtons = ref([{-->
-<!--  icon: 'copy',-->
-<!--  hint: 'Clone',-->
-<!--  operation: 'Clone'-->
-
-<!--}, {-->
-<!--  icon: 'trash',-->
-<!--  hint: 'Delete',-->
-<!--  operation: 'Delete'-->
-<!--}]);-->
-
-<!--const editingField = ref<FormElement | null>(null);-->
-
-<!--const controlBarOutsideClick = (field: FormElement) => {-->
-<!--  if (editingField.value === field) {-->
-<!--    editingField.value = null;-->
-<!--  }-->
-<!--};-->
+<!--const containerElements = defineModel<FormElement[]>('containerElements', {required: true});-->
 
 
-<!--const cloneFormItem = (item: FormElement) => {-->
-<!--  const {cloned} = useCloned(item);-->
-<!--  cloned.value.uniqueId = generateUniqueValue();-->
-<!--  return cloned.value;-->
-<!--};-->
-
-<!--const onFieldAdded = (e: DxSortableTypes.AddEvent) => {-->
-<!--  let item = e.itemData;-->
-<!--  if (!item) {-->
-<!--    item = e.fromData.splice(e.fromIndex - 1, 1)[0];-->
-<!--  }-->
-<!--  e.toData.splice(e.toIndex, 0, cloneFormItem(item));-->
-<!--};-->
-
-<!--const onDragStart = (e: DxSortableTypes.DragStartEvent) => {-->
-<!--  start();-->
-<!--  e.itemData = e.fromData[e.fromIndex];-->
-<!--};-->
-
-<!--const onDragEnd = (_e: DxSortableTypes.DragEndEvent) => {-->
-<!--  end();-->
-<!--};-->
-
-<!--const onReorder = (e: DxSortableTypes.ReorderEvent) => {-->
-<!--  e.fromData.splice(e.fromIndex, 1);-->
-<!--  e.toData.splice(e.toIndex, 1, e.itemData);-->
-<!--};-->
-
-<!--const onRemoved = (e: DxSortableTypes.RemoveEvent) => {-->
-<!--  e.fromData.splice(e.fromIndex, 1);-->
-<!--};-->
-
-<!--const generateKey = (item: FormElement, index: number) => {-->
-<!--  return `${item.uniqueId}.${index}`;-->
-<!--};-->
-
-<!--const editField = (field: FormElement) => {-->
-<!--  editingField.value = field;-->
-<!--};-->
-
-
-<!--const fieldOperationSelected = (e: DxButtonGroupTypes.ItemClickEvent, selectedField: FormElement) => {-->
-<!--  let index = childElements.value.indexOf(selectedField);-->
-
-<!--  if (e.itemData.operation === 'Delete') {-->
-<!--    childElements.value.splice(index, 1);-->
-<!--  } else {-->
-<!--    childElements.value.splice(index + 1, 0, cloneFormItem(selectedField));-->
-<!--  }-->
-
-<!--  e.event?.stopPropagation();-->
-<!--};-->
-
-
-<!--const generateUniqueValue = () => {-->
-<!--  return (Date.now() + Math.random()).toString();-->
-<!--};-->
-
-
-<!--const calculatedClasses = computed(() => {-->
-<!--  return isDragging.value ? `${cssClasses} bottom-padding` : cssClasses;-->
-<!--});-->
 
 <!--const resolveComponent = (element: FormElement) => {-->
-<!--  return element.classification === ElementClassification.CONTROL ?-->
-<!--      resolveControlComponent(element.type) : resolveDesignComponent(element.type);-->
+<!--  return element.classification === ElementClassification.DESIGN-->
+<!--      ? resolveDesignComponent(element.type)-->
+<!--      : resolveControlComponent(element.type);-->
 <!--};-->
 
 
-<!--watch(() => isDragging.value, (newValue) => {-->
-<!--  if (newValue) {-->
-<!--    editingField.value = null;-->
-<!--  }-->
-<!--  console.log(isDragging.value);-->
-<!--});-->
+<!--// Show control bar on hover-->
+<!--const showControlBar = (itemIndex: number) => {-->
+<!--  state.hoveredItemIndex = itemIndex;-->
+<!--};-->
+
+
+<!--// Hide control bar when mouse leaves-->
+<!--const hideControlBar = () => {-->
+<!--  state.hoveredItemIndex = null;-->
+<!--  state.hoveredSectionIndex = null;-->
+<!--};-->
+
+<!--// Check if control bar should be shown for a specific item-->
+<!--const isHovered = (itemIndex: number, sectionIndex: number | null) => {-->
+<!--  return state.hoveredItemIndex === itemIndex && state.hoveredSectionIndex === sectionIndex;-->
+<!--};-->
+
+<!--// Clone an item-->
+<!--const cloneItem = (itemIndex: number) => {-->
+<!--  const element = containerElements.value[itemIndex];-->
+<!--  containerElements.value.push(useElementClone(element));-->
+<!--};-->
+
+<!--// Delete an item-->
+<!--const deleteItem = (itemIndex: number) => {-->
+<!--  containerElements.value.splice(itemIndex, 1);-->
+<!--};-->
+
+<!--// Edit an item (this can be linked to a modal or an inline editor)-->
+<!--const editItem = (itemIndex: number) => {-->
+<!--  const element = containerElements.value[itemIndex];-->
+
+<!--  console.log('Editing item:', element);-->
+<!--};-->
+
+
+<!--// Handle when drag starts-->
+<!--const onDragStart = () => {-->
+<!--  store.isDragging = true;-->
+<!--};-->
+
+<!--// Handle when drag ends (reset state if needed)-->
+<!--const onDragEnd = () => {-->
+<!--  store.isDragging = false;-->
+<!--  console.log('Drag Ended');-->
+<!--};-->
 <!--</script>-->
 
-<!--<style scoped lang="scss">-->
+<!--<style scoped>-->
+<!--.dropped-item {-->
+<!--  cursor: grab;-->
+<!--  position: relative;-->
+<!--}-->
+
 <!--.control-bar {-->
-<!--  display: none;-->
+<!--  position: absolute;-->
+<!--  top: 10px;-->
+<!--  right: 10px;-->
+<!--  display: flex;-->
+<!--  gap: 5px;-->
+<!--  background-color: rgba(255, 255, 255, 0.9);-->
+<!--  border: 1px solid #ccc;-->
+<!--  padding: 5px;-->
+<!--  z-index: 1;-->
+<!--  border-radius: 5px;-->
+<!--  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);-->
 <!--}-->
 
-<!--.placeholder-container {-->
-<!--  background-color: whitesmoke;-->
+<!--.control-bar button {-->
+<!--  background-color: transparent;-->
+<!--  border: none;-->
+<!--  cursor: pointer;-->
+<!--  font-size: 14px;-->
+<!--  padding: 5px;-->
+<!--  color: #333;-->
 <!--}-->
 
-<!--@mixin edit-control {-->
-<!--  z-index: 100;-->
-<!--  background-color: white;-->
-<!--  border: 1px solid lightsteelblue;-->
+<!--.control-bar button:hover {-->
+<!--  background-color: #ddd;-->
+<!--}-->
+
+<!--.empty-placeholder {-->
+<!--  padding: 20px;-->
+<!--  color: #888;-->
+<!--  text-align: center;-->
+<!--  font-size: 16px;-->
+<!--  border: 1px dashed #ccc;-->
+<!--  background-color: #f7f7f7;-->
+<!--  border-radius: 8px;-->
+<!--  pointer-events: none; /* Ensure placeholder doesn't block interaction */-->
+<!--}-->
+
+
+<!--:deep(.dx-widget input) {-->
+<!--  cursor: grab;-->
+<!--}-->
+<!--</style>-->
+
+
+<!--<template>-->
+<!--  <div class="container-fluid">-->
+<!--    <div class="row">-->
+<!--      <Draggable-->
+<!--          v-model:list="containerElements"-->
+<!--          :group="{ name: 'controls', clone: true, put: true }"-->
+<!--          :class="cssClasses"-->
+<!--          item-key="uniqueId"-->
+<!--          @end="onDragEnd"-->
+<!--          @start="onDragStart"-->
+<!--          :clone="useElementClone"-->
+<!--      >-->
+<!--        <template #item="{ element, index } : {element: FormElement, index: number}">-->
+<!--          <div-->
+<!--              class="position-relative dropped-item"-->
+<!--              @mouseenter="showControlBar(index)"-->
+<!--              @mouseleave="hideControlBar()"-->
+<!--          >-->
+<!--            &lt;!&ndash; Control Bar &ndash;&gt;-->
+<!--            <div v-if="isHovered(index, null)" class="control-bar">-->
+<!--              <button class="control-btn" @click="editItem(index)">-->
+<!--                <i class="bi bi-pencil"></i>-->
+<!--              </button>-->
+<!--              <button class="control-btn" @click="cloneItem(index)">-->
+<!--                <i class="bi bi-copy"></i>-->
+<!--              </button>-->
+<!--              <button class="control-btn" @click="deleteItem(index)">-->
+<!--                <i class="bi bi-trash"></i>-->
+<!--              </button>-->
+<!--            </div>-->
+
+<!--            &lt;!&ndash; Render the dynamic form element &ndash;&gt;-->
+<!--            <component :is="resolveComponent(element)" v-bind="element.props" />-->
+<!--          </div>-->
+<!--        </template>-->
+
+<!--        &lt;!&ndash; Placeholder for Empty Dropzone (only show if no items and not dragging) &ndash;&gt;-->
+<!--        <template #footer>-->
+<!--          <div-->
+<!--              v-if="containerElements.length === 0 && !store.isDragging && showDefaultPlaceholder"-->
+<!--              class="empty-placeholder"-->
+<!--          >-->
+<!--            Drag items here to start building your form-->
+<!--          </div>-->
+<!--        </template>-->
+<!--      </Draggable>-->
+<!--    </div>-->
+<!--  </div>-->
+<!--</template>-->
+
+<!--<script lang="ts" setup>-->
+<!--import { defineProps, reactive } from 'vue';-->
+<!--import Draggable from 'vuedraggable';-->
+<!--import { resolveControlComponent } from '../../form-components';-->
+<!--import { resolveDesignComponent } from '../design-elements';-->
+<!--import { ElementClassification, ElementWrapperProps, FormElement } from '../../../types/builder';-->
+<!--import { useElementClone } from '../../../composables/useElementClone';-->
+<!--import { useBuilderStore } from '../../stores/builder-store';-->
+
+
+<!--defineProps<ElementWrapperProps>();-->
+
+<!--const store = useBuilderStore();-->
+
+<!--const state = reactive({-->
+<!--  hoveredItemIndex: null as number | null,-->
+<!--  hoveredSectionIndex: null as number | null-->
+<!--});-->
+
+
+<!--const containerElements = defineModel<FormElement[]>('containerElements', { required: true });-->
+
+<!--const resolveComponent = (element: FormElement) => {-->
+<!--  return element.classification === ElementClassification.DESIGN-->
+<!--      ? resolveDesignComponent(element.type)-->
+<!--      : resolveControlComponent(element.type);-->
+<!--};-->
+
+
+<!--const showControlBar = (itemIndex: number) => {-->
+<!--  state.hoveredItemIndex = itemIndex;-->
+<!--};-->
+
+<!--// Hide control bar when mouse leaves-->
+<!--const hideControlBar = () => {-->
+<!--  state.hoveredItemIndex = null;-->
+<!--  state.hoveredSectionIndex = null;-->
+<!--};-->
+
+<!--// Check if control bar should be shown for a specific item-->
+<!--const isHovered = (itemIndex: number, sectionIndex: number | null) => {-->
+<!--  return state.hoveredItemIndex === itemIndex && state.hoveredSectionIndex === sectionIndex;-->
+<!--};-->
+
+<!--// Clone an item-->
+<!--const cloneItem = (itemIndex: number) => {-->
+<!--  const element = containerElements.value[itemIndex];-->
+<!--  containerElements.value.push(useElementClone(element));-->
+<!--};-->
+
+<!--// Delete an item-->
+<!--const deleteItem = (itemIndex: number) => {-->
+<!--  containerElements.value.splice(itemIndex, 1);-->
+<!--};-->
+
+<!--// Edit an item (this can be linked to a modal or an inline editor)-->
+<!--const editItem = (itemIndex: number) => {-->
+<!--  const element = containerElements.value[itemIndex];-->
+
+<!--  console.log('Editing item:', element);-->
+<!--};-->
+
+<!--// Handle when drag starts-->
+<!--const onDragStart = () => {-->
+<!--  store.isDragging = true;-->
+<!--};-->
+
+<!--// Handle when drag ends (reset state if needed)-->
+<!--const onDragEnd = () => {-->
+<!--  store.isDragging = false;-->
+<!--  console.log('Drag Ended');-->
+<!--};-->
+<!--</script>-->
+
+<!--<style scoped>-->
+<!--.dropped-item {-->
+<!--  cursor: grab;-->
 <!--  position: relative;-->
-
-<!--  .control-bar {-->
-<!--    display: flex;-->
-<!--    justify-content: space-between;-->
-<!--    padding-right: 10px;-->
-<!--    background-color: lightsteelblue;-->
-<!--    color: white;-->
-
-<!--    .dx-icon {-->
-<!--      color: white;-->
-<!--    }-->
-<!--  }-->
-<!--  :hover {-->
-<!--    cursor: pointer;-->
-<!--  }-->
-
 <!--}-->
 
-<!--.editing {-->
-<!--  @include edit-control;-->
+<!--.control-bar {-->
+<!--  position: absolute;-->
+<!--  top: 10px;-->
+<!--  right: 10px;-->
+<!--  display: flex;-->
+<!--  gap: 5px;-->
+<!--  background-color: rgba(255, 255, 255, 0.9);-->
+<!--  border: 1px solid #ccc;-->
+<!--  padding: 5px;-->
+<!--  z-index: 1;-->
+<!--  border-radius: 5px;-->
+<!--  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);-->
 <!--}-->
 
-<!--.field-edit-wrapper:hover {-->
-<!--  @include edit-control;-->
+<!--.control-bar button {-->
+<!--  background-color: transparent;-->
+<!--  border: none;-->
+<!--  cursor: pointer;-->
+<!--  font-size: 14px;-->
+<!--  padding: 5px;-->
+<!--  color: #333;-->
 <!--}-->
 
-<!--$form-placeholder-color: #888;-->
-<!--$form-placeholder-font-size: 1.2rem;-->
-<!--$form-placeholder-border-color: #ccc;-->
-
-<!--.form-canvas {-->
-<!--  height: 100%;-->
-<!--  position: relative;-->
-<!--  overflow-y: auto;-->
-<!--  padding: 25px;-->
-
-<!--  .placeholder-text {-->
-<!--    position: absolute;-->
-<!--    top: 50%;-->
-<!--    left: 50%;-->
-<!--    transform: translate(-50%, -50%);-->
-<!--    font-size: $form-placeholder-font-size;-->
-<!--    color: $form-placeholder-color;-->
-<!--  }-->
-
-<!--  .form-canvas {-->
-<!--    height: 100%;-->
-<!--    display: flex;-->
-<!--    flex-direction: column;-->
-<!--    overflow-y: auto; /* Allows scroll inside the form canvas */-->
-<!--  }-->
-
+<!--.control-bar button:hover {-->
+<!--  background-color: #ddd;-->
 <!--}-->
 
-
-<!--.form-scroll-box {-->
-<!--  flex-grow: 1; /* Ensures this box takes available space */-->
-<!--  overflow-y: auto; /* Enables scrolling */-->
-<!--  scrollbar-width: thin; /* For Firefox */-->
-
-<!--  &::-webkit-scrollbar {-->
-<!--    width: 6px; /* For WebKit browsers */-->
-<!--  }-->
-
-<!--  &::-webkit-scrollbar-thumb {-->
-<!--    background-color: rgba(0, 0, 0, 0.3);-->
-<!--    border-radius: 3px;-->
-<!--  }-->
+<!--.empty-placeholder {-->
+<!--  padding: 20px;-->
+<!--  color: #888;-->
+<!--  text-align: center;-->
+<!--  font-size: 16px;-->
+<!--  border: 1px dashed #ccc;-->
+<!--  background-color: #f7f7f7;-->
+<!--  border-radius: 8px;-->
+<!--  pointer-events: none; /* Ensure placeholder doesn't block interaction */-->
 <!--}-->
 
-<!--.bottom-padding {-->
-<!--  padding-bottom: 10px;-->
-<!--  padding-top: 10px;-->
+<!--:deep(.dx-widget input) {-->
+<!--  cursor: grab;-->
 <!--}-->
 <!--</style>-->

@@ -1,85 +1,23 @@
 <template>
-  <div>
+  <div class="container-fluid">
     <ElementWrapper
-        :key="componentUid"
-        :id="id"
-        css-classes="builder-container"
-        v-model:container-elements="container"
-    >
-      <template #placeholder>
-        <p>TEST</p>
-      </template>
-    </ElementWrapper>
+        :key="uniqueId"
+        v-model:containerElements="container"
+        :unique-id="uniqueId"
+    />
   </div>
 </template>
 
-<script setup lang="ts">
-import {defineProps, useId} from 'vue';
-import ElementWrapper from './ElementWrapper.vue';
+<script lang="ts" setup>
 import {useElementContainer} from '../../../composables/useElementContainer';
+import {UniqueIdProp} from '../../../types/builder';
+import ElementWrapper from './ElementWrapper.vue';
 
-const componentUid = useId();
 
+const props = defineProps<UniqueIdProp>();
 
-const {id} = defineProps({
-  id: {
-    required: true,
-    type: String
-  }
-});
-
-const {container} = useElementContainer(id);
-
+const {container} = useElementContainer(props.uniqueId);
 </script>
 
-<style lang="scss">
-.builder-container {
-  height: 200px;
-  margin-bottom: 12px;
-  display: flex;
-  flex-grow: 1;
-}
+<style scoped>
 </style>
-
-<!--<template>-->
-<!--  <div>-->
-<!--    <ElementWrapper-->
-<!--        :key="componentUid"-->
-<!--        :id="id"-->
-<!--        css-classes="builder-container"-->
-<!--        v-model:container-elements="container"-->
-<!--    >-->
-<!--      <template #placeholder>-->
-<!--        <p>TEST</p>-->
-<!--      </template>-->
-<!--    </ElementWrapper>-->
-<!--  </div>-->
-<!--</template>-->
-
-<!--<script setup lang="ts">-->
-<!--import {defineProps, useId} from 'vue';-->
-<!--import ElementWrapper from './ElementWrapper.vue';-->
-<!--import {useElementContainer} from '../../../composables/useElementContainer';-->
-
-<!--const componentUid = useId();-->
-
-
-<!--const {id} = defineProps({-->
-<!--  id: {-->
-<!--    required: true,-->
-<!--    type: String-->
-<!--  }-->
-<!--});-->
-
-<!--const {container} = useElementContainer(id);-->
-
-<!--</script>-->
-
-<!--<style scoped lang="scss">-->
-<!--.builder-container {-->
-<!--  min-height: 50px;-->
-<!--  margin-bottom: 12px;-->
-<!--  display: flex;-->
-<!--  flex-grow: 1;-->
-<!--}-->
-<!--</style>-->

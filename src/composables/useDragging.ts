@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 
+const isDragging = ref(false);
 export const useDraggingTracking = () => {
-    const isDragging = ref(false);
     const start = () => {
         isDragging.value = true;
     }

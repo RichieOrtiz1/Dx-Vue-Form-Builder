@@ -4,6 +4,7 @@ import './style.css'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap'
 import 'bootstrap-icons/font/bootstrap-icons.css';
+import './configuration/styles/form-builder.scss'
 import App from './App.vue'
 
 let app = createApp(App);

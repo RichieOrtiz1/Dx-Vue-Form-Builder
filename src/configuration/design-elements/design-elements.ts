@@ -1,14 +1,13 @@
 import { markRaw, defineAsyncComponent } from 'vue';
-import CustomStore from 'devextreme/data/custom_store';
-import {ElementDefinition, ElementClassification} from '../../types/builder.ts';
+import {ElementDefinition, ElementClassification} from '../../types/builder';
 
-const Container = defineAsyncComponent(() => import('./components/Container.vue'));
 const MainHeading = defineAsyncComponent(() => import('./components/MainHeading.vue'));
 const SectionHeading = defineAsyncComponent(() => import('./components/SectionHeading.vue'));
 const SubHeading = defineAsyncComponent(() => import('./components/SubHeading.vue'));
 const Divider = defineAsyncComponent(() => import('./components/Divider.vue'));
 const PlainHtml = defineAsyncComponent(() => import('./components/PlainHtml.vue'));
 const Column = defineAsyncComponent(() => import('./components/Column.vue'));
+const Container = defineAsyncComponent(() => import('./components/Container.vue'));
 
 
 const defaults = {
@@ -117,20 +116,4 @@ const resolveDesignComponent = (type: string) => {
     }
 }
 
-const designElementsDataSource = new CustomStore({
-    loadMode: 'raw',
-    key: 'id',
-    load: () => {
-        // This is done to dynamically assign an id to the items in the array for it to be placed into the dev-extreme datasource
-        const data = designElements.map((element, index) => {
-            return {
-                ...element,
-                id: index + 1,
-            }
-        });
-
-        return Promise.resolve(data);
-    },
-});
-
-export { designElements, designElementsDataSource, resolveDesignComponent };
+export { designElements, resolveDesignComponent };

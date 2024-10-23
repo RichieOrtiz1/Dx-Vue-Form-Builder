@@ -1,13 +1,10 @@
-<script setup lang="ts">
-import Builder from './components/Builder.vue'
-
-</script>
-
 <template>
-<Builder/>
+  <Builder/>
 </template>
 
+<script lang="ts" setup>
+import Builder from './components/Builder.vue';
+</script>
+
 <style>
-
-
 </style>

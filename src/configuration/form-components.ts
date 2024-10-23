@@ -1,5 +1,4 @@
 import { markRaw, defineAsyncComponent } from 'vue';
-import CustomStore from 'devextreme/data/custom_store';
 import {ElementDefinition, ElementClassification} from '../types/builder';
 
 const DxTextBox = defineAsyncComponent(() => import('devextreme-vue/text-box'));
@@ -130,7 +129,7 @@ const elementTypes: ElementDefinition[] = [
         props: {
             label: 'Radio Group',
         }
-    },
+    }
 ];
 
 const resolveControlComponent = (type: string) => {
@@ -156,31 +155,13 @@ const resolveControlComponent = (type: string) => {
             return markRaw(DxSwitch);
         case 'RadioGroup':
             return markRaw(DxRadioGroup);
-        default:
-            return null;
     }
 }
 
 // Define the CustomStore using TypeScript
-const elementTypeDataSource = new CustomStore({
-    loadMode: 'raw',
-    key: 'id',
-    load: () => {
-        // Dynamically assign an id to the items in the array for placement into the dev-extreme datasource
-        const data = elementTypes.map((element, index) => {
-            return {
-                ...element,
-                id: index + 1,
-            }
-        });
-
-        return Promise.resolve(data);
-    },
-});
 
 
 export {
     elementTypes,
-    elementTypeDataSource,
     resolveControlComponent
 };
