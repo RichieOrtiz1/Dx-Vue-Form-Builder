@@ -1,5 +1,5 @@
 <template>
-  <Builder/>
+  <Builder />
 </template>
 
 <script lang="ts" setup>

@@ -1,6 +1,6 @@
 import {defineStore} from 'pinia';
 import {computed, reactive, ref} from 'vue';
-import {FormConfiguration, Column, GridLayoutItem} from '../../types/builder';
+import {FormConfiguration, Column, GridLayoutItem, FormElement} from '../../types/builder';
 
 export const useBuilderStore = defineStore('formConfigStore', () => {
     // Reactive State
@@ -10,6 +10,7 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
 
     const isDragging = ref(false);
     const formElements = reactive<GridLayoutItem[]>([]);
+    const editingElement = ref<FormElement | null>(null);
 
     // Actions
 
@@ -81,6 +82,9 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         return JSON.stringify(formElements.flat());
     });
 
+    const setEditingElement = (element: FormElement | null) => {
+        editingElement.value = element;
+    }
 
     return {
         formConfiguration,
@@ -92,6 +96,7 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         fetchColumns,
         setColumns,
         removeColumn,
+        setEditingElement,
         isDragging
     };
 });

@@ -1,579 +1,351 @@
-<template>
-  <div class="container-fluid">
-    <div
-        class="drop-zone"
-        @drop="onDrop"
-        @dragover.prevent
-    >
-      <GridLayout
-          v-model:layout="gridLayout"
-          :col-num="12"
-          :row-height="30"
-          class="min-vh-100"
-          :is-draggable="true"
-          :is-resizable="true"
-          :responsive="true"
-          :vertical-compact="true"
-          @layout-updated="onLayoutUpdated"
-      >
-        <GridItem
-            v-for="(element, index) in containerElements"
-            :key="element.uniqueId"
-            :x="element.x"
-            :y="element.y"
-            :i="element.uniqueId"
-            :w="element.w || 6"
-            :h="element.h || 1"
-            @resize="resize"
-            @move="move"
-        >
-          <div
-              class="position-relative dropped-item"
-              @mouseenter="showControlBar(index)"
-              @mouseleave="hideControlBar()"
-          >
-            <div v-if="isHovered(index)" class="control-bar">
-              <div class="col-count-overlay">{{ element.colspan }}</div>
-              <div class="control-buttons">
-                <button class="control-btn" @click="cloneItem(index)">
-                  <i class="bi bi-copy"></i>
-                </button>
-                <button class="control-btn" @click="deleteItem(index)">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </div>
-            </div>
-            <component :is="resolveComponent(element)" v-bind="element.props" />
-          </div>
-        </GridItem>
-      </GridLayout>
-    </div>
 
-    <div v-if="containerElements.length === 0 && !store.isDragging" class="empty-placeholder">
-      Drag items here to start building your form
+<template>
+  <div class="custom-drop-zone container-fluid w-100" :class="cssClasses" @dragover.prevent @drop="onExternalDrop" @dragleave="onDragLeave">
+    <Placeholder v-if="childElements.length === 0" :highlight="isDragging" />
+
+    <div class="row w-100 m-0" style="padding-bottom: 50px">
+      <div v-for="(field, index) in childElements"
+           :key="field.uniqueId"
+           :class="getColumnClass(field)"
+           class="element-container"
+      >
+        <div class="draggable-item position-relative"
+             :class="{ 'hovered': hoveringIndex === index }"
+             draggable="true"
+             @dragstart="onDragStart(index, $event)"
+             @dragover.prevent="onDragOverItem($event, index)"
+             @drop.prevent="onInternalDrop(index, $event)"
+             @dragend="onDragLeave"
+             @mouseover="hoveredItemIndex = index"
+             @dragover="handleDragOver"
+             @dragleave="handleDragLeave"
+             @drop="handleDrop"
+             @mouseleave="hoveredItemIndex = null">
+
+          <!-- Hover Controls -->
+          <div v-show="hoveredItemIndex === index" class="element-controls">
+            <div class="btn-group">
+              <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
+                <i class="bi bi-files"></i>
+              </button>
+              <button class="btn btn-sm btn-light" @click="editElement(field)" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-sm btn-light" @click="removeElement(index)" title="Remove">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+            <!-- Column Size Controls -->
+            <div class="col-size-controls ms-2">
+              <button class="btn btn-sm btn-light" @click="decreaseColSpan(field)"
+                      :disabled="!canDecreaseColumns(field)" title="Decrease width">
+                <i class="bi bi-arrow-bar-left"></i>
+              </button>
+              <span class="mx-2">{{ field.colspan || 12 }}</span>
+              <button class="btn btn-sm btn-light" @click="increaseColSpan(field)"
+                      :disabled="!canIncreaseColumns(field)" title="Increase width">
+                <i class="bi bi-arrow-bar-right"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group mb-2">
+            <component :is="resolveComponent(field)" v-bind="field.props" />
+          </div>
+        </div>
+      </div>
+      <!-- Drop area AFTER the last item -->
+      <div
+          class="drop-zone-after"
+          @dragover.prevent="onDragOverItem($event, childElements.length)"
+          @drop.prevent="onInternalDrop(childElements.length, $event)"
+      >
+      </div>
+
     </div>
   </div>
 </template>
 
-<script lang="ts" setup>
-import { defineProps, reactive, ref } from 'vue';
-import { GridLayout, GridItem} from 'vue3-grid-layout-next';
-import { resolveControlComponent } from '../../form-components';
-import { resolveDesignComponent } from '../design-elements';
-import {ElementClassification, ElementWrapperProps, FormElement, GridLayoutItem} from '../../../types/builder';
-import { useElementClone } from '../../../composables/useElementClone';
+
+
+<script setup lang="ts">
+import { ref } from 'vue';
 import { useBuilderStore } from '../../stores/builder-store';
-import {LayoutItem} from 'vue3-grid-layout-next/dist/helpers/utils';
-import {useUUID} from '../../../composables/useUUID';
+import { FormElement, ElementClassification } from '../../../types/builder';
+import Placeholder from './Placeholder.vue';
+import { resolveControlComponent } from "../../form-components";
+import { resolveDesignComponent } from "../design-elements";
 
-defineProps<ElementWrapperProps>();
+const props = defineProps<{
+  id: string;
+  cssClasses?: string;
+}>();
+
+const childElements = defineModel<FormElement[]>({ required: true });
 const store = useBuilderStore();
-const gridLayout = ref<any[]>([]);
+const { isDragging } = store;
 
-const containerElements = defineModel<GridLayoutItem[]>('containerElements', { required: true });
+const draggedIndex = ref<number | null>(null);
+const hoveringIndex = ref<number | null>(null);
+const hoveredItemIndex = ref<number | null>(null);
 
-const state = reactive({
-  hoveredItemIndex: null as number | null,
-  resizingIndex: null as number | null,
-  initialWidth: 0,
-  startX: 0,
-});
 
-const resolveComponent = (element: FormElement): any => {
-  return element.classification === ElementClassification.DESIGN
-      ? resolveDesignComponent(element.type)
-      : resolveControlComponent(element.type);
+const resolveComponent = (element: FormElement) => {
+  return element.classification === ElementClassification.CONTROL
+    ? resolveControlComponent(element.type)
+    : resolveDesignComponent(element.type);
 };
 
-
-// Update layout when grid items are resized or repositioned
-const onLayoutUpdated = (newLayout: LayoutItem[]): void => {
-  newLayout.forEach((layoutItem: LayoutItem) => {
-
-    const item = containerElements.value.find(x => x.uniqueId === layoutItem.i)!;
-    item.x = layoutItem.x;
-    item.y = layoutItem.y;
-    item.colspan = layoutItem.w;
-    item.w = layoutItem.w;
-    item.h = layoutItem.h;
-  });
+// Column size utilities
+const getColumnClass = (element: FormElement) => {
+  return `col-${element.colspan || 12}`;
 };
 
-const {generate} = useUUID();
-// Handle the native drop event
-const onDrop = (event: DragEvent): void => {
-  const draggedElementData = event.dataTransfer?.getData('text/plain');
-  if (draggedElementData) {
-    const newElement = JSON.parse(draggedElementData); // Assuming element data is serialized
-    newElement.x = 0;
-    newElement.y = 0;
-    newElement.uniqueId = generate();
-    newElement.colspan = 6;
-    newElement.w = 6;
-    newElement.h = 1;
-    containerElements.value.push(newElement);
-    gridLayout.value.push({
-      i: newElement.uniqueId,
-      x: newElement.x!,
-      y: newElement.y!,
-      w: newElement.colspan!,
-      h: 1,
-    });
+const canDecreaseColumns = (element: FormElement) => {
+  return (element.colspan || 12) > 1;
+};
+
+const canIncreaseColumns = (element: FormElement) => {
+  return (element.colspan || 12) < 12;
+};
+
+// Element actions
+const cloneElement = (element: FormElement) => {
+  const clonedElement = { 
+    ...element, 
+    uniqueId: crypto.randomUUID(),
+    childComponents: element.childComponents ? [...element.childComponents] : undefined,
+    columns: element.columns ? [...element.columns] : undefined
+  };
+  const index = childElements.value.findIndex(el => el.uniqueId === element.uniqueId);
+  childElements.value.splice(index + 1, 0, clonedElement);
+};
+
+const editElement = (element: FormElement) => {
+  store.setEditingElement(element);
+};
+
+const removeElement = (index: number) => {
+  childElements.value.splice(index, 1);
+};
+
+const decreaseColSpan = (element: FormElement) => {
+  if (!canDecreaseColumns(element)) return;
+  element.colspan = (element.colspan || 12) - 1;
+};
+
+const increaseColSpan = (element: FormElement) => {
+  if (!canIncreaseColumns(element)) return;
+  element.colspan = (element.colspan || 12) + 1;
+};
+
+// Keep your existing drag and drop methods
+function onDragStart(index: number, event: DragEvent) {
+  if (!event.dataTransfer) return;
+
+  draggedIndex.value = index;
+  store.isDragging = true;
+
+  event.dataTransfer.setData('text/plain', index.toString());
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragOverItem(event: DragEvent, index: number) {
+  event.preventDefault();
+  hoveringIndex.value = index;
+}
+
+function onDragLeave(event: DragEvent) {
+  const dropZone = (event.currentTarget as HTMLElement).closest('.custom-drop-zone');
+  const relatedTarget = event.relatedTarget as HTMLElement;
+
+  if (!dropZone?.contains(relatedTarget)) {
+    hoveringIndex.value = null;
+    draggedIndex.value = null;
+    store.isDragging = false;
   }
+}
+
+function onInternalDrop(dropIndex: number, event: DragEvent) {
+  event.stopPropagation();
+
+  let sourceIndex = draggedIndex.value;
+  if (sourceIndex === null) {
+    const transferredIndex = event.dataTransfer?.getData('text/plain');
+    sourceIndex = transferredIndex ? parseInt(transferredIndex, 10) : null;
+  }
+
+  if (sourceIndex === null || sourceIndex === dropIndex) {
+    return;
+  }
+
+  const items = [...childElements.value];
+  const [movedItem] = items.splice(sourceIndex, 1);
+  items.splice(dropIndex, 0, movedItem);
+  childElements.value = items;
+
+  draggedIndex.value = null;
+  hoveringIndex.value = null;
+  store.isDragging = false;
+}
+
+function onExternalDrop(event: DragEvent) {
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer) return;
+
+  const raw = dataTransfer.getData('application/json');
+  if (!raw) return;
+
+  try {
+    const newElement = JSON.parse(raw) as FormElement;
+    if (!newElement || typeof newElement !== 'object') return;
+
+    if (!isValidFormElement(newElement)) {
+      console.warn('Invalid form element structure');
+      return;
+    }
+
+    newElement.uniqueId = crypto.randomUUID();
+    childElements.value.push(newElement);
+  } catch (error) {
+    console.warn('Invalid external drop payload:', error);
+  }
+
+  onDragLeave(event);
+}
+
+const isDragOver = ref(false);
+
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  isDragOver.value = true;
 };
 
-const showControlBar = (itemIndex: number): void => {
-  state.hoveredItemIndex = itemIndex;
+const handleDragLeave = (event: DragEvent) => {
+  event.preventDefault();
+  isDragOver.value = false;
 };
 
-const hideControlBar = (): void => {
-  state.hoveredItemIndex = null;
+const handleDrop = (event: DragEvent) => {
+  isDragOver.value = false;
+  // your existing drop handling
 };
 
-const isHovered = (itemIndex: number): boolean => {
-  return state.hoveredItemIndex === itemIndex;
-};
 
-const cloneItem = (itemIndex: number): void => {
-  const element = containerElements.value[itemIndex];
-  containerElements.value.push(useElementClone(element));
-};
-
-const deleteItem = (itemIndex: number): void => {
-  containerElements.value.splice(itemIndex, 1);
-  gridLayout.value.splice(itemIndex, 1);
-};
-
-const resize = (i: string | number, h: number, w: number): void => {
-  const item = containerElements.value.find(x => x.uniqueId === i)!;
-  item.h = h;
-  item.w = w;
-  item.colspan = w;
-};
-
-const move = (i: string | number, x: number, y: number): void => {
-  const item = containerElements.value.find(x => x.uniqueId === i)!;
-  item.x = x;
-  item.y = y;
-};
+function isValidFormElement(element: unknown): element is FormElement {
+  const formElement = element as FormElement;
+  return (
+    formElement !== null &&
+    typeof formElement === 'object' &&
+    'type' in formElement &&
+    'classification' in formElement &&
+    (formElement.classification === ElementClassification.CONTROL ||
+      formElement.classification === ElementClassification.DESIGN)
+  );
+}
 </script>
 
-<style scoped>
-:deep(.dropped-item) {
-  cursor: grab;
+<style lang="scss" scoped>
+.custom-drop-zone {
+  min-height: 300px;
+  border: 2px dashed #ccc;
+  background-color: #fafafa;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 25px;
+}
+
+
+.element-container {
+  padding: 4px;
+  height: fit-content;
+
+  &.drag-over::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background-color: #007bff;
+    z-index: 1000;
+  }
+
+  &.drag-over::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px dashed #007bff;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+}
+
+.draggable-item {
+  background: white;
+  padding: 8px;
+  border: 1px solid #ddd;
+  cursor: move;
+  transition: all 0.2s ease;
   position: relative;
-  touch-action: none;
+  height: fit-content;
+  min-height: 80px;
+
+  &:hover {
+    outline: 2px dashed #007bff;
+    outline-offset: -2px;
+    z-index: 1;
+  }
+
+  &.hovered {
+    border-top: 2px solid #007bff;
+    background-color: #f0f8ff;
+    transform: translateY(2px);
+  }
 }
 
-:deep(.vue-grid-item){
-  touch-action: none;
-}
-
-.control-bar {
-  display: flex;
-  max-width: 98%;
-  align-items: center;
-  justify-content: space-between;
+.element-controls {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: -30px;
   right: 0;
-  background-color: rgba(0, 255, 0, 0.1);
-  border: 1px solid #ccc;
-  padding: 5px;
-  z-index: 1;
-  border-radius: 5px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.col-count-overlay {
-  background-color: #fff;
-  border: 1px solid #ccc;
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: bold;
-  color: #333;
-}
-
-.control-buttons {
   display: flex;
-  gap: 5px;
+  align-items: center;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 2px;
+  z-index: 2;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+
+  &:hover {
+    z-index: 3;
+  }
 }
 
-.control-bar button {
-  background-color: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 5px;
-  color: #333;
+.col-size-controls {
+  display: flex;
+  align-items: center;
 }
 
-.control-bar button:hover {
-  background-color: #ddd;
+// Add button hover effects
+.btn-group .btn, .col-size-controls .btn {
+  &:hover {
+    background-color: #e9ecef;
+  }
 }
 
-.empty-placeholder {
-  padding: 20px;
-  color: #888;
-  text-align: center;
-  font-size: 16px;
-  border: 1px dashed #ccc;
-  background-color: #f7f7f7;
-  border-radius: 8px;
-  pointer-events: none;
+.drop-zone-after {
+  min-height: 40px;
+  width: 100%;
+  border: 2px dashed transparent;
+  margin-top: 10px;
+  transition: border 0.2s;
+
+  &.hovered {
+    border-color: #007bff;
+    background-color: #f0f8ff;
+  }
 }
+
 </style>
-
-
-
-
-
-
-
-
-
-
-
-
-
-<!--<template>-->
-<!--  <div class="container-fluid">-->
-<!--    <div class="row">-->
-<!--      <Draggable-->
-<!--          v-model:list="containerElements"-->
-<!--          :group="{ name: 'controls', clone: true, put: true }"-->
-<!--          :class="cssClasses"-->
-<!--          item-key="uniqueId"-->
-<!--          @end="onDragEnd"-->
-<!--          @start="onDragStart"-->
-<!--          :clone="useElementClone"-->
-<!--      >-->
-<!--        <template #item="{ element, index } : {element: FormElement, index: number}">-->
-<!--          <div class="position-relative dropped-item"-->
-<!--               @mouseenter="showControlBar(index)"-->
-<!--               @mouseleave="hideControlBar()">-->
-<!--            &lt;!&ndash; Control Bar &ndash;&gt;-->
-<!--            <div v-if="isHovered(index, null)" class="control-bar">-->
-<!--              <button class="control-btn" @click="editItem(index)"><i class="bi bi-pencil"></i></button>-->
-<!--              <button class="control-btn" @click="cloneItem(index)"><i class="bi bi-copy"></i></button>-->
-<!--              <button class="control-btn" @click="deleteItem(index)"><i class="bi bi-trash"></i></button>-->
-<!--            </div>-->
-
-<!--            <component :is="resolveComponent(element)" v-bind="element.props"/>-->
-<!--          </div>-->
-<!--        </template>-->
-
-<!--        &lt;!&ndash; Placeholder for Empty Dropzone (only show if no items and not dragging) &ndash;&gt;-->
-<!--        <template #footer>-->
-<!--          <div v-if="containerElements.length === 0 && !store.isDragging" class="empty-placeholder">-->
-<!--            Drag items here to start building your form-->
-<!--          </div>-->
-<!--        </template>-->
-<!--      </Draggable>-->
-<!--    </div>-->
-<!--  </div>-->
-<!--</template>-->
-
-<!--<script lang="ts" setup>-->
-<!--import {defineProps, reactive} from 'vue';-->
-<!--import Draggable from 'vuedraggable';-->
-<!--import {resolveControlComponent} from '../../form-components';-->
-<!--import {resolveDesignComponent} from '../design-elements';-->
-<!--import {ElementClassification, ElementWrapperProps, FormElement} from '../../../types/builder';-->
-<!--import {useElementClone} from '../../../composables/useElementClone';-->
-<!--import {useBuilderStore} from '../../stores/builder-store';-->
-
-<!--const store = useBuilderStore();-->
-
-<!--defineProps<ElementWrapperProps>();-->
-
-
-<!--const state = reactive({-->
-<!--  hoveredItemIndex: null as number | null,-->
-<!--  hoveredSectionIndex: null as number | null-->
-<!--});-->
-
-<!--const containerElements = defineModel<FormElement[]>('containerElements', {required: true});-->
-
-
-
-<!--const resolveComponent = (element: FormElement) => {-->
-<!--  return element.classification === ElementClassification.DESIGN-->
-<!--      ? resolveDesignComponent(element.type)-->
-<!--      : resolveControlComponent(element.type);-->
-<!--};-->
-
-
-<!--// Show control bar on hover-->
-<!--const showControlBar = (itemIndex: number) => {-->
-<!--  state.hoveredItemIndex = itemIndex;-->
-<!--};-->
-
-
-<!--// Hide control bar when mouse leaves-->
-<!--const hideControlBar = () => {-->
-<!--  state.hoveredItemIndex = null;-->
-<!--  state.hoveredSectionIndex = null;-->
-<!--};-->
-
-<!--// Check if control bar should be shown for a specific item-->
-<!--const isHovered = (itemIndex: number, sectionIndex: number | null) => {-->
-<!--  return state.hoveredItemIndex === itemIndex && state.hoveredSectionIndex === sectionIndex;-->
-<!--};-->
-
-<!--// Clone an item-->
-<!--const cloneItem = (itemIndex: number) => {-->
-<!--  const element = containerElements.value[itemIndex];-->
-<!--  containerElements.value.push(useElementClone(element));-->
-<!--};-->
-
-<!--// Delete an item-->
-<!--const deleteItem = (itemIndex: number) => {-->
-<!--  containerElements.value.splice(itemIndex, 1);-->
-<!--};-->
-
-<!--// Edit an item (this can be linked to a modal or an inline editor)-->
-<!--const editItem = (itemIndex: number) => {-->
-<!--  const element = containerElements.value[itemIndex];-->
-
-<!--  console.log('Editing item:', element);-->
-<!--};-->
-
-
-<!--// Handle when drag starts-->
-<!--const onDragStart = () => {-->
-<!--  store.isDragging = true;-->
-<!--};-->
-
-<!--// Handle when drag ends (reset state if needed)-->
-<!--const onDragEnd = () => {-->
-<!--  store.isDragging = false;-->
-<!--  console.log('Drag Ended');-->
-<!--};-->
-<!--</script>-->
-
-<!--<style scoped>-->
-<!--.dropped-item {-->
-<!--  cursor: grab;-->
-<!--  position: relative;-->
-<!--}-->
-
-<!--.control-bar {-->
-<!--  position: absolute;-->
-<!--  top: 10px;-->
-<!--  right: 10px;-->
-<!--  display: flex;-->
-<!--  gap: 5px;-->
-<!--  background-color: rgba(255, 255, 255, 0.9);-->
-<!--  border: 1px solid #ccc;-->
-<!--  padding: 5px;-->
-<!--  z-index: 1;-->
-<!--  border-radius: 5px;-->
-<!--  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);-->
-<!--}-->
-
-<!--.control-bar button {-->
-<!--  background-color: transparent;-->
-<!--  border: none;-->
-<!--  cursor: pointer;-->
-<!--  font-size: 14px;-->
-<!--  padding: 5px;-->
-<!--  color: #333;-->
-<!--}-->
-
-<!--.control-bar button:hover {-->
-<!--  background-color: #ddd;-->
-<!--}-->
-
-<!--.empty-placeholder {-->
-<!--  padding: 20px;-->
-<!--  color: #888;-->
-<!--  text-align: center;-->
-<!--  font-size: 16px;-->
-<!--  border: 1px dashed #ccc;-->
-<!--  background-color: #f7f7f7;-->
-<!--  border-radius: 8px;-->
-<!--  pointer-events: none; /* Ensure placeholder doesn't block interaction */-->
-<!--}-->
-
-
-<!--:deep(.dx-widget input) {-->
-<!--  cursor: grab;-->
-<!--}-->
-<!--</style>-->
-
-
-<!--<template>-->
-<!--  <div class="container-fluid">-->
-<!--    <div class="row">-->
-<!--      <Draggable-->
-<!--          v-model:list="containerElements"-->
-<!--          :group="{ name: 'controls', clone: true, put: true }"-->
-<!--          :class="cssClasses"-->
-<!--          item-key="uniqueId"-->
-<!--          @end="onDragEnd"-->
-<!--          @start="onDragStart"-->
-<!--          :clone="useElementClone"-->
-<!--      >-->
-<!--        <template #item="{ element, index } : {element: FormElement, index: number}">-->
-<!--          <div-->
-<!--              class="position-relative dropped-item"-->
-<!--              @mouseenter="showControlBar(index)"-->
-<!--              @mouseleave="hideControlBar()"-->
-<!--          >-->
-<!--            &lt;!&ndash; Control Bar &ndash;&gt;-->
-<!--            <div v-if="isHovered(index, null)" class="control-bar">-->
-<!--              <button class="control-btn" @click="editItem(index)">-->
-<!--                <i class="bi bi-pencil"></i>-->
-<!--              </button>-->
-<!--              <button class="control-btn" @click="cloneItem(index)">-->
-<!--                <i class="bi bi-copy"></i>-->
-<!--              </button>-->
-<!--              <button class="control-btn" @click="deleteItem(index)">-->
-<!--                <i class="bi bi-trash"></i>-->
-<!--              </button>-->
-<!--            </div>-->
-
-<!--            &lt;!&ndash; Render the dynamic form element &ndash;&gt;-->
-<!--            <component :is="resolveComponent(element)" v-bind="element.props" />-->
-<!--          </div>-->
-<!--        </template>-->
-
-<!--        &lt;!&ndash; Placeholder for Empty Dropzone (only show if no items and not dragging) &ndash;&gt;-->
-<!--        <template #footer>-->
-<!--          <div-->
-<!--              v-if="containerElements.length === 0 && !store.isDragging && showDefaultPlaceholder"-->
-<!--              class="empty-placeholder"-->
-<!--          >-->
-<!--            Drag items here to start building your form-->
-<!--          </div>-->
-<!--        </template>-->
-<!--      </Draggable>-->
-<!--    </div>-->
-<!--  </div>-->
-<!--</template>-->
-
-<!--<script lang="ts" setup>-->
-<!--import { defineProps, reactive } from 'vue';-->
-<!--import Draggable from 'vuedraggable';-->
-<!--import { resolveControlComponent } from '../../form-components';-->
-<!--import { resolveDesignComponent } from '../design-elements';-->
-<!--import { ElementClassification, ElementWrapperProps, FormElement } from '../../../types/builder';-->
-<!--import { useElementClone } from '../../../composables/useElementClone';-->
-<!--import { useBuilderStore } from '../../stores/builder-store';-->
-
-
-<!--defineProps<ElementWrapperProps>();-->
-
-<!--const store = useBuilderStore();-->
-
-<!--const state = reactive({-->
-<!--  hoveredItemIndex: null as number | null,-->
-<!--  hoveredSectionIndex: null as number | null-->
-<!--});-->
-
-
-<!--const containerElements = defineModel<FormElement[]>('containerElements', { required: true });-->
-
-<!--const resolveComponent = (element: FormElement) => {-->
-<!--  return element.classification === ElementClassification.DESIGN-->
-<!--      ? resolveDesignComponent(element.type)-->
-<!--      : resolveControlComponent(element.type);-->
-<!--};-->
-
-
-<!--const showControlBar = (itemIndex: number) => {-->
-<!--  state.hoveredItemIndex = itemIndex;-->
-<!--};-->
-
-<!--// Hide control bar when mouse leaves-->
-<!--const hideControlBar = () => {-->
-<!--  state.hoveredItemIndex = null;-->
-<!--  state.hoveredSectionIndex = null;-->
-<!--};-->
-
-<!--// Check if control bar should be shown for a specific item-->
-<!--const isHovered = (itemIndex: number, sectionIndex: number | null) => {-->
-<!--  return state.hoveredItemIndex === itemIndex && state.hoveredSectionIndex === sectionIndex;-->
-<!--};-->
-
-<!--// Clone an item-->
-<!--const cloneItem = (itemIndex: number) => {-->
-<!--  const element = containerElements.value[itemIndex];-->
-<!--  containerElements.value.push(useElementClone(element));-->
-<!--};-->
-
-<!--// Delete an item-->
-<!--const deleteItem = (itemIndex: number) => {-->
-<!--  containerElements.value.splice(itemIndex, 1);-->
-<!--};-->
-
-<!--// Edit an item (this can be linked to a modal or an inline editor)-->
-<!--const editItem = (itemIndex: number) => {-->
-<!--  const element = containerElements.value[itemIndex];-->
-
-<!--  console.log('Editing item:', element);-->
-<!--};-->
-
-<!--// Handle when drag starts-->
-<!--const onDragStart = () => {-->
-<!--  store.isDragging = true;-->
-<!--};-->
-
-<!--// Handle when drag ends (reset state if needed)-->
-<!--const onDragEnd = () => {-->
-<!--  store.isDragging = false;-->
-<!--  console.log('Drag Ended');-->
-<!--};-->
-<!--</script>-->
-
-<!--<style scoped>-->
-<!--.dropped-item {-->
-<!--  cursor: grab;-->
-<!--  position: relative;-->
-<!--}-->
-
-<!--.control-bar {-->
-<!--  position: absolute;-->
-<!--  top: 10px;-->
-<!--  right: 10px;-->
-<!--  display: flex;-->
-<!--  gap: 5px;-->
-<!--  background-color: rgba(255, 255, 255, 0.9);-->
-<!--  border: 1px solid #ccc;-->
-<!--  padding: 5px;-->
-<!--  z-index: 1;-->
-<!--  border-radius: 5px;-->
-<!--  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);-->
-<!--}-->
-
-<!--.control-bar button {-->
-<!--  background-color: transparent;-->
-<!--  border: none;-->
-<!--  cursor: pointer;-->
-<!--  font-size: 14px;-->
-<!--  padding: 5px;-->
-<!--  color: #333;-->
-<!--}-->
-
-<!--.control-bar button:hover {-->
-<!--  background-color: #ddd;-->
-<!--}-->
-
-<!--.empty-placeholder {-->
-<!--  padding: 20px;-->
-<!--  color: #888;-->
-<!--  text-align: center;-->
-<!--  font-size: 16px;-->
-<!--  border: 1px dashed #ccc;-->
-<!--  background-color: #f7f7f7;-->
-<!--  border-radius: 8px;-->
-<!--  pointer-events: none; /* Ensure placeholder doesn't block interaction */-->
-<!--}-->
-
-<!--:deep(.dx-widget input) {-->
-<!--  cursor: grab;-->
-<!--}-->
-<!--</style>-->

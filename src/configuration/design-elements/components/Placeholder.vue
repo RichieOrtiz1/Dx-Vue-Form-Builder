@@ -16,8 +16,8 @@ defineProps({
 
 <style scoped lang="scss">
 .placeholder-container {
+  padding-top: 30%;
   background-color: whitesmoke;
-  border: 2px dashed #ccc;
   transition: background-color 0.2s ease;
 
   &.highlight {
