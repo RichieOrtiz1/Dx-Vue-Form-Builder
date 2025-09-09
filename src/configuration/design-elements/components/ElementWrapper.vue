@@ -1,5 +1,6 @@
 
 
+
 <template>
   <div class="custom-drop-zone container-fluid w-100"
        :class="cssClasses"
@@ -14,7 +15,8 @@
            class="drop-zone-between w-100"
            :class="{ 'hovered': hoveringIndex === 0 }"
            @dragover.prevent="onDragOverItem($event, 0)"
-           @drop.prevent="onInternalDrop(0, $event)">
+           @drop.prevent="onInternalDrop(0, $event)"
+           :key="`drop-zone-start`">
       </div>
 
       <template v-for="(field, index) in childElements" :key="field.uniqueId">
@@ -68,13 +70,15 @@
           <div class="drop-zone-between w-100"
                :class="{ 'hovered': hoveringIndex === index + 1 }"
                @dragover.prevent="onDragOverItem($event, index + 1)"
-               @drop.prevent="onInternalDrop(index + 1, $event)">
+               @drop.prevent="onInternalDrop(index + 1, $event)"
+               :key="`drop-zone-${field.uniqueId}`">
           </div>
         </div>
       </template>
     </div>
   </div>
 </template>
+
 
 <script setup lang="ts">
 import { ref } from 'vue';
