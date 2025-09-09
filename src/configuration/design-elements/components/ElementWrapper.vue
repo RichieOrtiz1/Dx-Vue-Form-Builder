@@ -2,30 +2,28 @@
 <template>
   <div class="custom-drop-zone container-fluid w-100"
        :class="cssClasses"
-       @dragover.prevent="onDragOver"
-       @drop.prevent="onExternalDrop"
+       @dragover.prevent
+       @drop="onExternalDrop"
        @dragleave="onDragLeave">
-
     <Placeholder v-if="childElements.length === 0" :highlight="isDragging" />
 
     <div class="row w-100 m-0" style="padding-bottom: 50px">
-      <!-- Draggable Items -->
       <div v-for="(field, index) in childElements"
            :key="field.uniqueId"
            :class="getColumnClass(field)"
            class="element-container">
         <div class="draggable-item position-relative"
-             :class="{ 'hovered': dragOverIndex === index }"
+             :class="{ 'hovered': hoveringIndex === index }"
              draggable="true"
-             @dragstart="onDragStart($event, index)"
+             @dragstart="onDragStart(index, $event)"
              @dragover.prevent="onDragOverItem($event, index)"
-             @drop.prevent="onDrop($event, index)"
-             @dragend="onDragEnd"
-             @mouseover="hoveredIndex = index"
-             @mouseleave="hoveredIndex = null">
+             @drop.prevent="onInternalDrop(index, $event)"
+             @dragend="onDragLeave"
+             @mouseover="hoveredItemIndex = index"
+             @mouseleave="hoveredItemIndex = null">
 
           <!-- Hover Controls -->
-          <div v-show="hoveredIndex === index" class="element-controls">
+          <div v-show="hoveredItemIndex === index" class="element-controls">
             <div class="btn-group">
               <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
                 <i class="bi bi-files"></i>
@@ -63,9 +61,9 @@
 
       <!-- Drop area after the last item -->
       <div class="drop-zone-after"
-           :class="{ 'hovered': dragOverIndex === childElements.length }"
+           :class="{ 'hovered': hoveringIndex === childElements.length }"
            @dragover.prevent="onDragOverItem($event, childElements.length)"
-           @drop.prevent="onDrop($event, childElements.length)">
+           @drop.prevent="onInternalDrop(childElements.length, $event)">
       </div>
     </div>
   </div>
@@ -79,30 +77,37 @@ import Placeholder from './Placeholder.vue';
 import { resolveControlComponent } from "../../form-components";
 import { resolveDesignComponent } from "../design-elements";
 
-const props = defineProps<{
+defineProps<{
   id: string;
   cssClasses?: string;
 }>();
 
 const childElements = defineModel<FormElement[]>({ required: true });
 const store = useBuilderStore();
+const { isDragging } = store;
 
-// State management
-const dragOverIndex = ref<number | null>(null);
-const hoveredIndex = ref<number | null>(null);
-const draggedElement = ref<{ index: number, element: FormElement } | null>(null);
+const draggedIndex = ref<number | null>(null);
+const hoveringIndex = ref<number | null>(null);
+const hoveredItemIndex = ref<number | null>(null);
 
-// Component resolution
 const resolveComponent = (element: FormElement) => {
   return element.classification === ElementClassification.CONTROL
       ? resolveControlComponent(element.type)
       : resolveDesignComponent(element.type);
 };
 
-// Column utilities
-const getColumnClass = (element: FormElement) => `col-${element.colspan || 12}`;
-const canDecreaseColumns = (element: FormElement) => (element.colspan || 12) > 1;
-const canIncreaseColumns = (element: FormElement) => (element.colspan || 12) < 12;
+// Column size utilities
+const getColumnClass = (element: FormElement) => {
+  return `col-${element.colspan || 12}`;
+};
+
+const canDecreaseColumns = (element: FormElement) => {
+  return (element.colspan || 12) > 1;
+};
+
+const canIncreaseColumns = (element: FormElement) => {
+  return (element.colspan || 12) < 12;
+};
 
 // Element actions
 const cloneElement = (element: FormElement) => {
@@ -125,84 +130,77 @@ const removeElement = (index: number) => {
 };
 
 const decreaseColSpan = (element: FormElement) => {
-  if (canDecreaseColumns(element)) {
-    element.colspan = (element.colspan || 12) - 1;
-  }
+  if (!canDecreaseColumns(element)) return;
+  element.colspan = (element.colspan || 12) - 1;
 };
 
 const increaseColSpan = (element: FormElement) => {
-  if (canIncreaseColumns(element)) {
-    element.colspan = (element.colspan || 12) + 1;
-  }
+  if (!canIncreaseColumns(element)) return;
+  element.colspan = (element.colspan || 12) + 1;
 };
 
-// Drag and Drop handlers
-const onDragStart = (event: DragEvent, index: number) => {
+// Drag and drop methods
+function onDragStart(index: number, event: DragEvent) {
   if (!event.dataTransfer) return;
 
-  draggedElement.value = {
-    index,
-    element: childElements.value[index]
-  };
-
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', index.toString());
+  draggedIndex.value = index;
   store.isDragging = true;
-};
 
-const onDragOver = (event: DragEvent) => {
+  event.dataTransfer.setData('text/plain', index.toString());
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragOverItem(event: DragEvent, index: number) {
   event.preventDefault();
-  event.dataTransfer!.dropEffect = 'move';
-};
+  hoveringIndex.value = index;
+}
 
-const onDragOverItem = (event: DragEvent, index: number) => {
-  event.preventDefault();
-  dragOverIndex.value = index;
-};
-
-const onDrop = (event: DragEvent, dropIndex: number) => {
-  event.preventDefault();
-  event.stopPropagation();
-
-  if (draggedElement.value === null) {
-    handleExternalDrop(event);
-    return;
-  }
-
-  const { index: sourceIndex, element: movedElement } = draggedElement.value;
-
-  if (sourceIndex === dropIndex) return;
-
-  const items = [...childElements.value];
-  items.splice(sourceIndex, 1);
-  items.splice(dropIndex > sourceIndex ? dropIndex - 1 : dropIndex, 0, movedElement);
-
-  childElements.value = items;
-  resetDragState();
-};
-
-const onDragEnd = () => {
-  resetDragState();
-};
-
-const onDragLeave = (event: DragEvent) => {
+function onDragLeave(event: DragEvent) {
   const dropZone = (event.currentTarget as HTMLElement).closest('.custom-drop-zone');
   const relatedTarget = event.relatedTarget as HTMLElement;
 
   if (!dropZone?.contains(relatedTarget)) {
-    resetDragState();
+    hoveringIndex.value = null;
+    draggedIndex.value = null;
+    store.isDragging = false;
   }
-};
+}
 
-const handleExternalDrop = (event: DragEvent) => {
+function onInternalDrop(dropIndex: number, event: DragEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  let sourceIndex = draggedIndex.value;
+  if (sourceIndex === null) {
+    const transferredIndex = event.dataTransfer?.getData('text/plain');
+    sourceIndex = transferredIndex ? parseInt(transferredIndex, 10) : null;
+  }
+
+  if (sourceIndex === null || sourceIndex === dropIndex) {
+    return;
+  }
+
+  const actualDropIndex = dropIndex > sourceIndex ? dropIndex - 1 : dropIndex;
+  const items = [...childElements.value];
+  const [movedItem] = items.splice(sourceIndex, 1);
+  items.splice(actualDropIndex, 0, movedItem);
+  childElements.value = items;
+
+  draggedIndex.value = null;
+  hoveringIndex.value = null;
+  store.isDragging = false;
+}
+
+function onExternalDrop(event: DragEvent) {
+  event.preventDefault();
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
 
-  const rawData = dataTransfer.getData('application/json');
-  if (!rawData) return;
+  const raw = dataTransfer.getData('application/json');
+  if (!raw) return;
 
   try {
-    const newElement = JSON.parse(rawData) as FormElement;
+    const newElement = JSON.parse(raw) as FormElement;
     if (!isValidFormElement(newElement)) {
       console.warn('Invalid form element structure');
       return;
@@ -213,16 +211,13 @@ const handleExternalDrop = (event: DragEvent) => {
   } catch (error) {
     console.warn('Invalid external drop payload:', error);
   }
-};
 
-const resetDragState = () => {
-  draggedElement.value = null;
-  dragOverIndex.value = null;
+  draggedIndex.value = null;
+  hoveringIndex.value = null;
   store.isDragging = false;
-};
+}
 
-// Validation
-const isValidFormElement = (element: unknown): element is FormElement => {
+function isValidFormElement(element: unknown): element is FormElement {
   const formElement = element as FormElement;
   return (
       formElement !== null &&
@@ -232,7 +227,7 @@ const isValidFormElement = (element: unknown): element is FormElement => {
       (formElement.classification === ElementClassification.CONTROL ||
           formElement.classification === ElementClassification.DESIGN)
   );
-};
+}
 </script>
 
 <style lang="scss" scoped>
@@ -294,6 +289,12 @@ const isValidFormElement = (element: unknown): element is FormElement => {
 .col-size-controls {
   display: flex;
   align-items: center;
+}
+
+.btn-group .btn, .col-size-controls .btn {
+  &:hover {
+    background-color: #e9ecef;
+  }
 }
 
 .drop-zone-after {
