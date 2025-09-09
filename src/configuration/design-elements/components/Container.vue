@@ -3,7 +3,7 @@
     <ElementWrapper
         :id="id"
         css-classes="builder-container container-fluid"
-        v-model:container-elements="container"
+        v-model="container"
     />
   </div>
 </template>

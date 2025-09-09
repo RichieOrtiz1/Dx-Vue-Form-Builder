@@ -14,7 +14,7 @@
             v-if="column.childComponents.length > 0"
             :id="component.uniqueId"
             :key="compIndex"
-            v-model:container-elements="column.childComponents"
+            v-model="column.childComponents"
         />
         <div v-else class="h-100 d-flex justify-content-center align-items-center placeholder-container">
           <p class="text-center" style="max-width: 50%">Drag sections, columns, or controls here to build your
