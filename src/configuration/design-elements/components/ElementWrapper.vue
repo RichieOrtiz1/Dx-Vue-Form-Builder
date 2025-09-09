@@ -1,4 +1,5 @@
 
+
 <template>
   <div class="custom-drop-zone container-fluid w-100"
        :class="cssClasses"
@@ -8,63 +9,69 @@
     <Placeholder v-if="childElements.length === 0" :highlight="isDragging" />
 
     <div class="row w-100 m-0" style="padding-bottom: 50px">
-      <div v-for="(field, index) in childElements"
-           :key="field.uniqueId"
-           :class="getColumnClass(field)"
-           class="element-container">
-        <div class="draggable-item position-relative"
-             :class="{ 'hovered': hoveringIndex === index }"
-             draggable="true"
-             @dragstart="onDragStart(index, $event)"
-             @dragover.prevent="onDragOverItem($event, index)"
-             @drop.prevent="onInternalDrop(index, $event)"
-             @dragend="onDragLeave"
-             @mouseover="hoveredItemIndex = index"
-             @mouseleave="hoveredItemIndex = null">
+      <!-- Drop zone before first item -->
+      <div v-if="childElements.length > 0"
+           class="drop-zone-between w-100"
+           :class="{ 'hovered': hoveringIndex === 0 }"
+           @dragover.prevent="onDragOverItem($event, 0)"
+           @drop.prevent="onInternalDrop(0, $event)">
+      </div>
 
-          <!-- Hover Controls -->
-          <div v-show="hoveredItemIndex === index" class="element-controls">
-            <div class="btn-group">
-              <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
-                <i class="bi bi-files"></i>
-              </button>
-              <button class="btn btn-sm btn-light" @click="editElement(field)" title="Edit">
-                <i class="bi bi-pencil"></i>
-              </button>
-              <button class="btn btn-sm btn-light" @click="removeElement(index)" title="Remove">
-                <i class="bi bi-trash"></i>
-              </button>
+      <template v-for="(field, index) in childElements" :key="field.uniqueId">
+        <div :class="getColumnClass(field)"
+             class="element-container">
+          <div class="draggable-item position-relative"
+               :class="{ 'hovered': hoveringIndex === index }"
+               draggable="true"
+               @dragstart="onDragStart(index, $event)"
+               @dragend="onDragLeave"
+               @mouseover="hoveredItemIndex = index"
+               @mouseleave="hoveredItemIndex = null">
+
+            <!-- Hover Controls -->
+            <div v-show="hoveredItemIndex === index" class="element-controls">
+              <div class="btn-group">
+                <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
+                  <i class="bi bi-files"></i>
+                </button>
+                <button class="btn btn-sm btn-light" @click="editElement(field)" title="Edit">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-sm btn-light" @click="removeElement(index)" title="Remove">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+              <!-- Column Size Controls -->
+              <div class="col-size-controls ms-2">
+                <button class="btn btn-sm btn-light"
+                        @click="decreaseColSpan(field)"
+                        :disabled="!canDecreaseColumns(field)"
+                        title="Decrease width">
+                  <i class="bi bi-arrow-bar-left"></i>
+                </button>
+                <span class="mx-2">{{ field.colspan || 12 }}</span>
+                <button class="btn btn-sm btn-light"
+                        @click="increaseColSpan(field)"
+                        :disabled="!canIncreaseColumns(field)"
+                        title="Increase width">
+                  <i class="bi bi-arrow-bar-right"></i>
+                </button>
+              </div>
             </div>
-            <!-- Column Size Controls -->
-            <div class="col-size-controls ms-2">
-              <button class="btn btn-sm btn-light"
-                      @click="decreaseColSpan(field)"
-                      :disabled="!canDecreaseColumns(field)"
-                      title="Decrease width">
-                <i class="bi bi-arrow-bar-left"></i>
-              </button>
-              <span class="mx-2">{{ field.colspan || 12 }}</span>
-              <button class="btn btn-sm btn-light"
-                      @click="increaseColSpan(field)"
-                      :disabled="!canIncreaseColumns(field)"
-                      title="Increase width">
-                <i class="bi bi-arrow-bar-right"></i>
-              </button>
+
+            <div class="form-group mb-2">
+              <component :is="resolveComponent(field)" v-bind="field.props" />
             </div>
           </div>
 
-          <div class="form-group mb-2">
-            <component :is="resolveComponent(field)" v-bind="field.props" />
+          <!-- Drop zone after each item -->
+          <div class="drop-zone-between w-100"
+               :class="{ 'hovered': hoveringIndex === index + 1 }"
+               @dragover.prevent="onDragOverItem($event, index + 1)"
+               @drop.prevent="onInternalDrop(index + 1, $event)">
           </div>
         </div>
-      </div>
-
-      <!-- Drop area after the last item -->
-      <div class="drop-zone-after"
-           :class="{ 'hovered': hoveringIndex === childElements.length }"
-           @dragover.prevent="onDragOverItem($event, childElements.length)"
-           @drop.prevent="onInternalDrop(childElements.length, $event)">
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -308,5 +315,32 @@ function isValidFormElement(element: unknown): element is FormElement {
     border-color: #007bff;
     background-color: #f0f8ff;
   }
+}
+
+.drop-zone-between {
+  height: 8px;
+  margin: 0;
+  transition: all 0.2s ease;
+  position: relative;
+
+  &.hovered {
+    height: 20px;
+    &::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      height: 2px;
+      background-color: #007bff;
+      transform: translateY(-50%);
+    }
+  }
+}
+
+.element-container {
+  padding: 4px;
+  height: fit-content;
+  position: relative;
 }
 </style>
