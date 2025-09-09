@@ -1,102 +1,156 @@
-import {defineStore} from 'pinia';
-import {computed, reactive, ref} from 'vue';
-import {FormConfiguration, Column, GridLayoutItem, FormElement} from '../../types/builder';
+import { defineStore } from 'pinia';
+import { computed, reactive, ref } from 'vue';
+import type { FormConfiguration, Column, FormElement } from '../../types/builder';
+
+interface DragPayload {
+    kind: 'internal';
+    sourceContainerId: string;
+    sourceUniqueId?: string;
+    take?: () => FormElement | undefined;
+}
 
 export const useBuilderStore = defineStore('formConfigStore', () => {
-    // Reactive State
-    const formConfiguration = reactive<FormConfiguration>({
-        labelMode: 'outside',
-    });
+    // --- state -------------------------------------------------
+    const formConfiguration = reactive<FormConfiguration>({ labelMode: 'outside' });
 
+    const formElements = ref<FormElement[]>([]);
     const isDragging = ref(false);
-    const formElements = reactive<GridLayoutItem[]>([]);
     const editingElement = ref<FormElement | null>(null);
 
-    // Actions
+    // For cross-container moves
+    const drag = ref<DragPayload | null>(null);
 
-    // Fetch a specific element by uniqueId
-    const fetchElement = (uniqueId: string): GridLayoutItem | undefined => {
-        const stack = [...formElements];
-        while (stack.length > 0) {
-            const current = stack.pop();
-            if (current?.uniqueId === uniqueId) {
-                return current;
-            }
-            if (current?.childComponents) {
-                stack.push(...current.childComponents);
+    // History stacks for undo/redo
+    const _undo = ref<string[]>([]);
+    const _redo = ref<string[]>([]);
+
+    const canUndo = computed(() => _undo.value.length > 0);
+    const canRedo = computed(() => _redo.value.length > 0);
+
+    // --- element lookup ----------------------------------------
+    const fetchElement = (uniqueId: string): FormElement | undefined => {
+        const stack = [...formElements.value];
+        while (stack.length) {
+            const current = stack.pop()!;
+            if (current?.uniqueId === uniqueId) return current;
+
+            if (current?.childComponents?.length) stack.push(...current.childComponents);
+
+            if (current?.columns?.length) {
+                for (const col of current.columns) {
+                    if (col.childComponents?.length) stack.push(...col.childComponents);
+                }
             }
         }
         return undefined;
     };
 
-    const fetchChildComponents = (uniqueId: string): GridLayoutItem[] => {
-        return fetchElement(uniqueId)?.childComponents ?? [];
+    // --- childComponents helpers -------------------------------
+    const fetchChildComponents = (uniqueId: string): FormElement[] =>
+        fetchElement(uniqueId)?.childComponents ?? [];
+
+    const setChildComponents = (uniqueId: string, components: FormElement[]) => {
+        const el = fetchElement(uniqueId);
+        if (el) el.childComponents = components;
     };
 
-    const setChildComponents = (uniqueId: string, components: GridLayoutItem[]) => {
-        const element = fetchElement(uniqueId);
-        if (element) {
-            element.childComponents = components;
-        }
-    };
-
-
-    // Add new columns to a specific FormElement based on colCount
+    // --- columns helpers ---------------------------------------
     const initializeColumns = (uniqueId: string, colCount: number) => {
-        const element = fetchElement(uniqueId);
-
-        if (!element) return;
-        element.columnCount = colCount;
-
-        element.columns = Array.from({length: colCount}, () =>
-            <Column>{
-                childComponents: []
-            }
-        );
+        const el = fetchElement(uniqueId);
+        if (!el) return;
+        el.columnCount = colCount;
+        el.columns = Array.from({ length: colCount }, () => ({ childComponents: [] }));
     };
 
-    // Fetch columns for a given FormElement by uniqueId
-    const fetchColumns = (uniqueId: string): Column[] => {
-        return fetchElement(uniqueId)?.columns ?? [];
-    };
+    const fetchColumns = (uniqueId: string): Column[] =>
+        fetchElement(uniqueId)?.columns ?? [];
 
     const setColumns = (uniqueId: string, columns: Column[]) => {
-        const element = fetchElement(uniqueId);
-        if (element) {
-            element.columnCount = columns.length;
-            element.columns = columns;
+        const el = fetchElement(uniqueId);
+        if (el) {
+            el.columnCount = columns.length;
+            el.columns = columns;
         }
     };
 
-    // Remove a column from a specific FormElement
     const removeColumn = (uniqueId: string, columnIndex: number) => {
-        const element = fetchElement(uniqueId);
-        if (!element) return;
-
-        element.columns = element.columns?.filter((_, index) => index !== columnIndex);
-
-        element.columnCount = element.columns?.length;
+        const el = fetchElement(uniqueId);
+        if (!el || !el.columns) return;
+        el.columns = el.columns.filter((_, i) => i !== columnIndex);
+        el.columnCount = el.columns.length;
     };
 
-    const schemaJson = computed(() => {
-        return JSON.stringify(formElements.flat());
-    });
-
+    // --- editing state -----------------------------------------
     const setEditingElement = (element: FormElement | null) => {
         editingElement.value = element;
-    }
+    };
 
+    // --- undo/redo ---------------------------------------------
+    const pushHistory = () => {
+        _undo.value.push(JSON.stringify(formElements.value));
+        _redo.value = [];
+    };
+
+    const undo = () => {
+        if (!_undo.value.length) return;
+        const snap = _undo.value.pop()!;
+        _redo.value.push(JSON.stringify(formElements.value));
+        formElements.value = JSON.parse(snap);
+    };
+
+    const redo = () => {
+        if (!_redo.value.length) return;
+        const snap = _redo.value.pop()!;
+        _undo.value.push(JSON.stringify(formElements.value));
+        formElements.value = JSON.parse(snap);
+    };
+
+    // --- drag state --------------------------------------------
+    const startInternalDrag = (payload: DragPayload) => {
+        drag.value = payload;
+    };
+
+    const clearDrag = () => {
+        drag.value = null;
+    };
+
+    // --- schema export -----------------------------------------
+    const schemaJson = computed(() => JSON.stringify(formElements.value));
+
+    // --- expose everything -------------------------------------
     return {
+        // state
         formConfiguration,
         formElements,
-        schemaJson,
+        isDragging,
+        editingElement,
+
+        // element helpers
+        fetchElement,
         fetchChildComponents,
         setChildComponents,
+
+        // columns
         initializeColumns,
         fetchColumns,
         setColumns,
         removeColumn,
+
+        // editing
         setEditingElement,
-        isDragging
+
+        // history
+        pushHistory,
+        undo,
+        redo,
+
+        // drag
+        drag,
+        startInternalDrag,
+        clearDrag,
+        canUndo,
+        canRedo,
+        // export
+        schemaJson,
     };
 });

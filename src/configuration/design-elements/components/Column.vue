@@ -1,69 +1,44 @@
 <template>
-  <div class="mt-3 mb-2 d-flex">
-    <!-- Sortable for the Columns -->
-    <div v-for="(column, index) in columnContainer.columns" :key="generateKey(index)" class="sortable-item col">
-      <!-- Sortable for components inside the column -->
-      <DxSortable
-          :key="`components-${generateKey(index)}`"
-          class="d-flex flex-column gap-2 w-100"
-          item-orientation="horizontal"
-          @reorder="onReorderColumns"
-      >
-        <ElementWrapper
-            v-for="(component, compIndex) in column.childComponents"
-            v-if="column.childComponents.length > 0"
-            :id="component.uniqueId"
-            :key="compIndex"
-            v-model="column.childComponents"
-        />
-        <div v-else class="h-100 d-flex justify-content-center align-items-center placeholder-container">
-          <p class="text-center" style="max-width: 50%">Drag sections, columns, or controls here to build your
-            form
-          </p>
-        </div>
-      </DxSortable>
-    </div>
+  <div class="column p-1">
+    <ElementWrapper
+        :id="columnContainerId"
+        :container-id="columnContainerId"
+        v-model="columnChildren"
+        :show-default-placeholder="true"
+        css-classes="column-drop"
+    />
   </div>
 </template>
 
-<script lang="ts" setup>
-import {defineProps, useId} from 'vue';
-import {DxSortable, type DxSortableTypes} from 'devextreme-vue/sortable';
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useBuilderStore } from '../../stores/builder-store';
 import ElementWrapper from './ElementWrapper.vue';
-import {useColumns} from '../../../composables/useColumns';
+import type { Column, FormElement } from '../../../types/builder';
 
-// Define props with TypeScript types
-const {id, colCount} = defineProps<{
-  id: string;
-  colCount: number;
+const props = defineProps<{
+  parentId: string;   // uniqueId of the parent (the Columns design element)
+  index: number;      // which column
 }>();
 
-// Initialize the component UID
-const componentUid = useId();
-const generateKey = (index: number) => `col-${componentUid}-${index}`;
+const store = useBuilderStore();
 
-// Use the composable to get the column container (with .value to ensure reactivity)
-const {columnContainer} = useColumns(id, colCount);
+const columns = computed<Column[]>(() => store.fetchColumns(props.parentId));
+const columnChildren = computed<FormElement[]>({
+  get: () => columns.value?.[props.index]?.childComponents ?? [],
+  set: (updated) => {
+    const next = (columns.value ?? []).map((c, i) =>
+        i === props.index ? { childComponents: updated } : c
+    );
+    store.setColumns(props.parentId, next);
+  },
+});
 
-// Handle reorder of entire columns
-const onReorderColumns = (e: DxSortableTypes.ReorderEvent) => {
-  const movedColumn = columnContainer.value.columns.splice(e.fromIndex, 1)[0];
-  columnContainer.value.columns.splice(e.toIndex, 0, movedColumn);
-
-  // Trigger reactivity by updating the reference
-  columnContainer.value.columns = [...columnContainer.value.columns];
-};
-
-// Handle reorder of components within a specific column
-const onReorderComponents = (columnIndex: number) => (e: DxSortableTypes.ReorderEvent) => {
-  const movedComponent = columnContainer.value.columns[columnIndex].childComponents.splice(e.fromIndex, 1)[0];
-  columnContainer.value.columns[columnIndex].childComponents.splice(e.toIndex, 0, movedComponent);
-
-  // Trigger reactivity by updating the reference
-  columnContainer.value.columns[columnIndex].childComponents = [...columnContainer.value.columns[columnIndex].childComponents];
-};
+// stable id for this column wrapper
+const columnContainerId = computed(() => `${props.parentId}:col-${props.index}`);
 </script>
 
 <style scoped>
-/* Add any custom styles here */
+.column { min-height: 60px; }
+:deep(.column-drop) { min-height: 80px; }
 </style>

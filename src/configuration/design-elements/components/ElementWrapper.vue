@@ -2,14 +2,18 @@
   <div
       class="custom-drop-zone container-fluid w-100"
       :class="cssClasses"
-      @dragover.prevent="onContainerDragOver"
-      @drop.prevent="onDropAtHover"
-      @dragleave="onDragLeave"
+      @dragenter.stop="onDragEnter"
+      @dragover.prevent.stop="onContainerDragOver"
+      @drop.prevent.stop="onDropAtHover"
+      @dragleave.stop="onDragLeave"
+      ref="rowRef"
   >
-    <Placeholder v-if="childElements.length === 0" :highlight="isDragging" />
+    <Placeholder
+        v-if="showDefaultPlaceholder && childElements.length === 0"
+        :highlight="isDragging"
+    />
 
-    <div class="row w-100 m-0 drop-row" ref="rowRef" style="padding-bottom: 50px; position: relative;">
-      <!-- Put :key on the template per linter -->
+    <div class="row w-100 m-0 drop-row" style="padding-bottom: 50px; position: relative;">
       <template v-for="(field, index) in childElements" :key="field.uniqueId">
         <div
             :class="getColumnClass(field)"
@@ -18,282 +22,377 @@
         >
           <div
               class="draggable-item position-relative"
-              :class="{ hovered: hoveringIndex === index }"
-              draggable="true"
+              :class="{
+              hovered: hoveringIndex === index,
+              resizing: resizingIndex === index,
+              selected: selectedId === field.uniqueId
+            }"
+              :draggable="resizingIndex !== index"
+              @click.stop="select(field.uniqueId)"
               @dragstart="onDragStart(index, $event)"
               @dragend="onDragEnd"
               @mouseover="hoveredItemIndex = index"
               @mouseleave="hoveredItemIndex = null"
           >
-            <!-- Hover Controls -->
-            <div v-show="hoveredItemIndex === index" class="element-controls">
+            <!-- Toolbar -->
+            <div
+                v-show="(hoveredItemIndex === index || selectedId === field.uniqueId) && resizingIndex !== index"
+                class="element-controls"
+            >
               <div class="btn-group">
-                <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
+                <button class="btn btn-sm btn-light" @click.stop="cloneElement(field)" title="Clone">
                   <i class="bi bi-files"></i>
                 </button>
-                <button class="btn btn-sm btn-light" @click="editElement(field)" title="Edit">
+                <button class="btn btn-sm btn-light" @click.stop="editElement(field)" title="Edit">
                   <i class="bi bi-pencil"></i>
                 </button>
-                <button class="btn btn-sm btn-light" @click="removeElement(index)" title="Remove">
+                <button class="btn btn-sm btn-light" @click.stop="removeElement(index)" title="Remove">
                   <i class="bi bi-trash"></i>
                 </button>
               </div>
-              <!-- Column Size Controls -->
-              <div class="col-size-controls ms-2">
-                <button
-                    class="btn btn-sm btn-light"
-                    @click="decreaseColSpan(field)"
-                    :disabled="!canDecreaseColumns(field)"
-                    title="Decrease width"
-                >
-                  <i class="bi bi-arrow-bar-left"></i>
-                </button>
-                <span class="mx-2">{{ field.colspan || 12 }}</span>
-                <button
-                    class="btn btn-sm btn-light"
-                    @click="increaseColSpan(field)"
-                    :disabled="!canIncreaseColumns(field)"
-                    title="Increase width"
-                >
-                  <i class="bi bi-arrow-bar-right"></i>
-                </button>
+              <div class="ms-2 badge bg-light text-dark border small">
+                {{ resizingIndex === index ? tentativeColspan : currentCols(field) }} / 12
               </div>
             </div>
 
+            <!-- Preview -->
             <div class="form-group mb-2">
-              <component :is="resolveComponent(field)" v-bind="field.props" />
+              <div class="preview-field">
+                <component :is="resolveComponent(field)" v-bind="field.props" />
+              </div>
+            </div>
+
+            <!-- Resize handle -->
+            <div
+                class="resize-handle"
+                title="Drag to resize width"
+                @mousedown.stop.prevent="onResizeStart(index, $event)"
+                @touchstart.stop.prevent="onResizeStart(index, $event)"
+            />
+            <div v-if="resizingIndex === index" class="resize-badge">
+              {{ tentativeColspan }} / 12
             </div>
           </div>
         </div>
       </template>
 
-      <!-- Floating insertion indicator spanning the row -->
-      <div
-          v-if="hoveringIndex !== null"
-          class="insertion-indicator"
-          :style="indicatorStyle"
-      ></div>
+      <div v-if="hoveringIndex !== null && enterCount > 0" class="insertion-indicator" :style="indicatorStyle"></div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, type ComponentPublicInstance } from 'vue';
+import {ref, computed, type ComponentPublicInstance, onMounted, onBeforeUnmount, nextTick} from 'vue';
 import { useBuilderStore } from '../../stores/builder-store';
 import { FormElement, ElementClassification } from '../../../types/builder';
 import Placeholder from './Placeholder.vue';
 import { resolveControlComponent } from '../../form-components';
 import { resolveDesignComponent } from '../design-elements';
+import { useRafThrottle } from '../../../composables/useRafThrottle';
+import { useAutoScroll } from '../../../composables/useAutoScroll';
+import { cloneElementDeep } from '../../../util/clone';
 
-defineProps<{
+const props = defineProps<{
   id: string;
+  containerId: string;
   cssClasses?: string;
+  showDefaultPlaceholder?: boolean;
 }>();
 
 const childElements = defineModel<FormElement[]>({ required: true });
+
 const store = useBuilderStore();
 const { isDragging } = store;
 
 const draggedIndex = ref<number | null>(null);
 const hoveringIndex = ref<number | null>(null);
 const hoveredItemIndex = ref<number | null>(null);
+const selectedId = ref<string | null>(null);
+function select(id: string) { selectedId.value = id; }
+
+const enterCount = ref(0);
 
 const rowRef = ref<HTMLElement | null>(null);
+let autoScroll: ReturnType<typeof useAutoScroll> | null = null;
+onMounted(() => { if (rowRef.value) autoScroll = useAutoScroll(rowRef.value); });
+onBeforeUnmount(() => { teardownResizeListeners(); });
 
-/** We store raw refs (Element | component instance); resolve to HTMLElement when needed */
 type PossibleRef = Element | ComponentPublicInstance | null;
 const itemEls = ref<PossibleRef[]>([]);
+function setItemEl(index: number) { return (el: PossibleRef) => { itemEls.value[index] = el; }; }
 
-function setItemEl(index: number) {
-  // NOTE: Vue's TS expects (el: Element | ComponentPublicInstance | null, refs?: Record<string, any>) => void
-  return (el: PossibleRef) => {
-    itemEls.value[index] = el;
-  };
+const resolveComponent = (el: FormElement) =>
+    el.classification === ElementClassification.CONTROL
+        ? resolveControlComponent(el.type)
+        : resolveDesignComponent(el.type);
+
+/* ---------- width helpers + live preview ---------- */
+const liveColspan = ref<Record<string, number>>({});
+const colNum = (cs: FormElement['colspan']): number => typeof cs === 'number' ? cs : 12;
+function currentCols(el: FormElement) {
+  return liveColspan.value[el.uniqueId] ?? colNum(el.colspan);
 }
+const getColumnClass = (el: FormElement) => `col-${currentCols(el)}`;
 
-const resolveComponent = (element: FormElement) => {
-  return element.classification === ElementClassification.CONTROL
-      ? resolveControlComponent(element.type)
-      : resolveDesignComponent(element.type);
+/* ---------- element ops ---------- */
+const cloneElement = (el: FormElement) => {
+  const cloned = cloneElementDeep(el);
+  const i = childElements.value.findIndex(x => x.uniqueId === el.uniqueId);
+  store.pushHistory?.();
+  childElements.value.splice(i + 1, 0, cloned);
 };
+const editElement = (el: FormElement) => store.setEditingElement(el);
+const removeElement = (index: number) => { store.pushHistory?.(); childElements.value.splice(index, 1); };
 
-// Column size utilities
-const getColumnClass = (element: FormElement) => `col-${element.colspan || 12}`;
-const canDecreaseColumns = (element: FormElement) => (element.colspan || 12) > 1;
-const canIncreaseColumns = (element: FormElement) => (element.colspan || 12) < 12;
-
-// Element actions
-const cloneElement = (element: FormElement) => {
-  const clonedElement = {
-    ...element,
-    uniqueId: crypto.randomUUID(),
-    childComponents: element.childComponents ? [...element.childComponents] : undefined,
-    columns: element.columns ? [...element.columns] : undefined,
-  };
-  const index = childElements.value.findIndex((el) => el.uniqueId === element.uniqueId);
-  childElements.value.splice(index + 1, 0, clonedElement);
-};
-
-const editElement = (element: FormElement) => {
-  store.setEditingElement(element);
-};
-
-const removeElement = (index: number) => {
-  childElements.value.splice(index, 1);
-};
-
-const decreaseColSpan = (element: FormElement) => {
-  if (!canDecreaseColumns(element)) return;
-  element.colspan = (element.colspan || 12) - 1;
-};
-
-const increaseColSpan = (element: FormElement) => {
-  if (!canIncreaseColumns(element)) return;
-  element.colspan = (element.colspan || 12) + 1;
-};
-
-// ---- Utilities ---------------------------------------------------------------
-/** Safely resolve a stored ref to a real HTMLElement (handles component instances) */
+/* ---------- utils ---------- */
 function toHTMLElement(node: PossibleRef): HTMLElement | null {
   if (!node) return null;
   if (node instanceof Element) return node as HTMLElement;
-  // component instance: its root is $el
   const el = (node as ComponentPublicInstance).$el as Element | undefined;
   return el instanceof Element ? (el as HTMLElement) : null;
 }
 
-// ---- DnD core ---------------------------------------------------------------
-function onDragStart(index: number, event: DragEvent) {
-  if (!event.dataTransfer) return;
-  draggedIndex.value = index;
-  store.isDragging = true;
+/* ---------- DnD ---------- */
+function onDragEnter() { enterCount.value++; }
 
-  event.dataTransfer.setData('text/plain', String(index));
-  event.dataTransfer.setData('application/x-internal-index', String(index));
-  event.dataTransfer.effectAllowed = 'move';
+function onDragStart(index: number, e: DragEvent) {
+  if (!e.dataTransfer) return;
+  const uid = childElements.value[index]?.uniqueId;
+  draggedIndex.value = index;
+
+  store.startInternalDrag?.({
+    kind: 'internal',
+    sourceContainerId: props.containerId,
+    sourceUniqueId: uid,
+    take: () => {
+      const i = childElements.value.findIndex(el => el.uniqueId === uid);
+      if (i >= 0) {
+        const [moved] = childElements.value.splice(i, 1);
+        return moved;
+      }
+    },
+  });
+
+  e.dataTransfer.setData('text/plain', String(index));
+  e.dataTransfer.setData('application/x-internal-index', String(index));
+  e.dataTransfer.effectAllowed = 'move';
 }
 
 function onDragEnd() {
   hardReset();
+  autoScroll?.stop();
+  enterCount.value = 0;
 }
 
-// Big target: compute insert index from mouse position
-function onContainerDragOver(event: DragEvent) {
-  event.preventDefault();
+const handleDragOver = useRafThrottle((e: DragEvent) => {
+  e.preventDefault();
   store.isDragging = true;
 
-  // Cursor feedback: copy for external JSON, else move
-  if (event.dataTransfer) {
-    const isExternal = event.dataTransfer.types?.includes('application/json');
-    event.dataTransfer.dropEffect = isExternal ? 'copy' : 'move';
+  if (e.dataTransfer) {
+    const isExternal = e.dataTransfer.types?.includes('application/json');
+    e.dataTransfer.dropEffect = isExternal ? 'copy' : 'move';
   }
 
-  const y = event.clientY;
+  const y = e.clientY;
   const els = itemEls.value.map(toHTMLElement).filter(Boolean) as HTMLElement[];
-
   if (!els.length) {
     hoveringIndex.value = 0;
+    autoScroll?.onMove(y);
     return;
   }
 
-  // Find the first element whose midpoint is below the cursor.
-  // Insert before it; otherwise at the end.
   let index = els.length;
   for (let i = 0; i < els.length; i++) {
     const r = els[i].getBoundingClientRect();
     const mid = r.top + r.height / 2;
-    if (y < mid) {
-      index = i;
-      break;
-    }
+    if (y < mid) { index = i; break; }
   }
   hoveringIndex.value = index;
-}
+  autoScroll?.onMove(y);
+});
+function onContainerDragOver(e: DragEvent) { handleDragOver(e); }
 
-function onDragLeave(event: DragEvent) {
-  // Only reset if we truly left the whole drop area
-  const root = event.currentTarget as HTMLElement;
-  const to = event.relatedTarget as Node | null;
-  if (root && to && !root.contains(to)) {
+function onDragLeave() {
+  enterCount.value = Math.max(0, enterCount.value - 1);
+  if (enterCount.value === 0) {
     hardReset();
+    autoScroll?.stop();
   }
 }
 
-function onDropAtHover(event: DragEvent) {
-  event.preventDefault();
-
+function onDropAtHover(e: DragEvent) {
+  e.preventDefault();
   const dropIndex = hoveringIndex.value ?? childElements.value.length;
+  const payload = store.drag;
 
-  // INTERNAL MOVE?
-  let sourceIndex: number | null = draggedIndex.value;
-  if (sourceIndex == null) {
-    const s = event.dataTransfer?.getData('text/plain');
-    sourceIndex = s != null && s !== '' ? parseInt(s, 10) : null;
-  }
-
-  if (sourceIndex != null && !Number.isNaN(sourceIndex)) {
-    if (sourceIndex !== dropIndex) {
-      const items = [...childElements.value];
-      const [moved] = items.splice(sourceIndex, 1);
-      const actualDrop = dropIndex > sourceIndex ? dropIndex - 1 : dropIndex;
-      items.splice(actualDrop, 0, moved);
-      childElements.value = items;
+  // INTERNAL
+  if (payload?.kind === 'internal') {
+    if (payload.sourceContainerId === props.containerId) {
+      let sourceIndex: number | null = draggedIndex.value;
+      if (sourceIndex == null) {
+        const s = e.dataTransfer?.getData('text/plain');
+        sourceIndex = s ? parseInt(s, 10) : null;
+      }
+      if (sourceIndex != null && sourceIndex !== dropIndex) {
+        store.pushHistory?.();
+        const items = [...childElements.value];
+        const [moved] = items.splice(sourceIndex, 1);
+        const actual = dropIndex > sourceIndex ? dropIndex - 1 : dropIndex;
+        items.splice(actual, 0, moved);
+        childElements.value = items;
+      }
+    } else {
+      const moved = payload.take?.();
+      if (moved) {
+        store.pushHistory?.();
+        const items = [...childElements.value];
+        items.splice(dropIndex, 0, moved);
+        childElements.value = items;
+      }
     }
     hardReset();
+    autoScroll?.stop();
+    enterCount.value = 0;
     return;
   }
 
-  // EXTERNAL INSERT?
-  const dt = event.dataTransfer;
+  // EXTERNAL
+  const dt = e.dataTransfer;
   if (dt?.types?.includes('application/json')) {
     try {
       const raw = dt.getData('application/json');
       if (raw) {
         const parsed = JSON.parse(raw) as FormElement;
-        if (isValidFormElement(parsed)) {
-          const newElement: FormElement = { ...parsed, uniqueId: crypto.randomUUID() };
-          const items = [...childElements.value];
-          items.splice(dropIndex, 0, newElement);
-          childElements.value = items;
+        parsed.uniqueId = crypto.randomUUID();
+        store.pushHistory?.();
+        const items = [...childElements.value];
+        items.splice(dropIndex, 0, parsed);
+        childElements.value = items;
+
+        if (!parsed.columns && parsed.props?.colCount && parsed.classification === ElementClassification.DESIGN) {
+          parsed.columnCount = parsed.props.colCount;
+          parsed.columns = Array.from({ length: parsed.props.colCount }, () => ({ childComponents: [] }));
         }
       }
-    } catch (e) {
-      console.warn('Invalid external drop payload:', e);
+    } catch (err) {
+      console.warn('Invalid external drop payload:', err);
     }
   }
 
   hardReset();
+  autoScroll?.stop();
+  enterCount.value = 0;
 }
 
 function hardReset() {
   draggedIndex.value = null;
   hoveringIndex.value = null;
   hoveredItemIndex.value = null;
+  store.clearDrag?.();
   store.isDragging = false;
 }
 
-function isValidFormElement(element: unknown): element is FormElement {
-  const formElement = element as FormElement;
-  return (
-      formElement !== null &&
-      typeof formElement === 'object' &&
-      'type' in formElement &&
-      'classification' in formElement &&
-      (formElement.classification === ElementClassification.CONTROL ||
-          formElement.classification === ElementClassification.DESIGN)
-  );
+/* ---------- RESIZE (live) ---------- */
+const resizingIndex = ref<number | null>(null);
+const startX = ref(0);
+const startColspan = ref(12);
+const tentativeColspan = ref(12);
+const colWidthPx = ref(0);
+
+function computeColWidth() {
+  const row = rowRef.value;
+  if (!row) return;
+  const w = row.clientWidth;
+  colWidthPx.value = Math.max(1, w / 12);
 }
 
-// ---- Indicator position ------------------------------------------------------
+function onResizeStart(index: number, evt: MouseEvent | TouchEvent) {
+  computeColWidth();
+  const el = childElements.value[index];
+  resizingIndex.value = index;
+  startColspan.value = currentCols(el);
+  tentativeColspan.value = startColspan.value;
+  startX.value = 'touches' in evt ? evt.touches[0].clientX : (evt as MouseEvent).clientX;
+
+  // seed live preview so the card moves immediately
+  liveColspan.value[el.uniqueId] = startColspan.value;
+
+  document.body.classList.add('resizing-col');
+  document.body.style.cursor = 'ew-resize';
+
+  window.addEventListener('mousemove', onResizeMove, { passive: false });
+  window.addEventListener('mouseup', onResizeEnd, { passive: false });
+  window.addEventListener('touchmove', onResizeMove, { passive: false });
+  window.addEventListener('touchend', onResizeEnd, { passive: false });
+}
+
+function onResizeMove(evt: MouseEvent | TouchEvent) {
+  if (resizingIndex.value === null) return;
+  evt.preventDefault();
+
+  const x = 'touches' in evt ? evt.touches[0].clientX : (evt as MouseEvent).clientX;
+  const dx = x - startX.value;
+  const colsDelta = Math.round(dx / Math.max(1, colWidthPx.value));
+  const next = Math.max(1, Math.min(12, startColspan.value + colsDelta));
+
+  tentativeColspan.value = next;
+
+  // update live preview width
+  const el = childElements.value[resizingIndex.value];
+  liveColspan.value[el.uniqueId] = next;
+}
+
+async function onResizeEnd() {
+  if (resizingIndex.value === null) return;
+
+  const idx = resizingIndex.value;
+  const el = childElements.value[idx];
+  const uid = el.uniqueId;
+
+  const finalCols = Math.max(1, Math.min(12, tentativeColspan.value));
+  const stored = colNum(el.colspan);          // ← read the committed number only
+
+  // Commit if changed (compare against the stored value, not currentCols/live)
+  if (stored !== finalCols) {
+    store.pushHistory?.();
+    el.colspan = finalCols;                   // commit to reactive state
+  }
+
+  // Hold live preview at the final value through the patch to avoid a flash
+  liveColspan.value[uid] = finalCols;
+
+  // Wait for DOM/class update, then clear live state (or keep it — both OK)
+  await nextTick();
+  requestAnimationFrame(() => {
+    delete liveColspan.value[uid];            // or keep it if you prefer
+  });
+
+  // Cleanup
+  resizingIndex.value = null;
+  tentativeColspan.value = 12;
+  document.body.classList.remove('resizing-col');
+  document.body.style.cursor = '';
+  teardownResizeListeners();
+}
+
+
+
+
+function teardownResizeListeners() {
+  window.removeEventListener('mousemove', onResizeMove as any);
+  window.removeEventListener('mouseup', onResizeEnd as any);
+  window.removeEventListener('touchmove', onResizeMove as any);
+  window.removeEventListener('touchend', onResizeEnd as any);
+}
+
+/* ---------- indicator position ---------- */
 const indicatorStyle = computed(() => {
   if (hoveringIndex.value === null || !rowRef.value) return {};
   const rowRect = rowRef.value.getBoundingClientRect();
 
   if (hoveringIndex.value >= childElements.value.length) {
     const lastEl = toHTMLElement(itemEls.value[childElements.value.length - 1]);
-    const y = lastEl
-        ? lastEl.getBoundingClientRect().bottom - rowRect.top
-        : rowRect.height;
+    const y = lastEl ? lastEl.getBoundingClientRect().bottom - rowRect.top : rowRect.height;
     return { top: `${y}px` };
   }
 
@@ -304,81 +403,106 @@ const indicatorStyle = computed(() => {
 });
 </script>
 
-<style lang="scss" scoped>
+<style scoped lang="scss">
 .custom-drop-zone {
+  position: relative;
   min-height: 300px;
+  padding: 25px;
   border: 2px dashed #ccc;
   background-color: #fafafa;
   display: flex;
   flex-direction: column;
-  padding-bottom: 25px;
   user-select: none;
 }
 
-.element-container {
-  padding: 6px 4px;
-  height: fit-content;
-  position: relative;
-}
+.element-container { height: fit-content; position: relative; }
 
+/* Default: neutral card */
 .draggable-item {
-  background: white;
-  padding: 10px;
-  border: 1px solid #ddd;
-  cursor: move;
-  transition: box-shadow 0.2s ease, transform 0.1s ease;
   position: relative;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+  cursor: move;
   min-height: 72px;
 
-  &:hover {
-    outline: 2px dashed #007bff;
-    outline-offset: -2px;
-    z-index: 1;
-  }
-
-  &.hovered {
-    box-shadow: 0 0 0 2px #007bff33 inset;
+  /* Show blue outline only when hovered OR selected OR resizing */
+  &.hovered,
+  &.selected,
+  &.resizing {
+    background: #eef6ff;              /* light blue background */
+    border-color: #0d6efd;            /* bootstrap blue */
+    box-shadow: 0 0 0 2px rgba(13,110,253,.12);
   }
 }
 
-/* Full-width insertion bar that follows the cursor */
-.insertion-indicator {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  border-top: 3px solid #007bff;
-  pointer-events: none;
-  box-shadow: 0 0 6px rgba(0, 123, 255, 0.35);
-}
-
+/* Toolbar pinned top-right */
 .element-controls {
   position: absolute;
-  top: -30px;
-  right: 0;
+  top: 6px;
+  right: 6px;
   display: flex;
   align-items: center;
-  background: white;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.95);
   border: 1px solid #dee2e6;
   border-radius: 4px;
-  padding: 2px;
-  z-index: 2;
+  padding: 2px 4px;
+  z-index: 3;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-
-  &:hover {
-    z-index: 3;
-  }
 }
 
-.col-size-controls {
-  display: flex;
-  align-items: center;
+/* Insert indicator between items */
+.insertion-indicator {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 3px solid #0d6efd; pointer-events: none;
+  box-shadow: 0 0 6px rgba(13,110,253,.35); z-index: 2;
 }
 
-.btn-group .btn,
-.col-size-controls .btn {
-  &:hover {
-    background-color: #e9ecef;
-  }
+.preview-field { pointer-events: none; }
+
+/* Resize handle: only visible when hovered/selected/resizing */
+.resize-handle {
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: #fff;
+  border: 1px solid #6c757d;
+  cursor: ew-resize;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity .12s ease, border-color .12s ease, background-color .12s ease;
 }
+.draggable-item.hovered .resize-handle,
+.draggable-item.selected .resize-handle,
+.draggable-item.resizing .resize-handle {
+  opacity: 1;
+  border-color: #0d6efd;
+  background: #e7f1ff;
+}
+
+/* Live badge while resizing */
+.resize-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 4;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1;
+  background: #fff;
+  border: 1px solid #0d6efd;
+  border-radius: 4px;
+  color: #0d6efd;
+}
+
+/* Prevent selecting text while resizing */
+:global(body.resizing-col) { user-select: none !important; }
 </style>
+

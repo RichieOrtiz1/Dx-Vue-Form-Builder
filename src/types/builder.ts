@@ -19,9 +19,9 @@ export interface Column {
     childComponents: FormElement[];
 }
 
-export interface FormElement extends ElementDefinition{
+export interface FormElement extends ElementDefinition {
     uniqueId: string;
-    colspan?: number;
+    colspan?: number | Partial<Record<'xs' | 'sm' | 'md' | 'lg' | 'xl', number>>;
     childComponents?: FormElement[];
     columnCount?: number;
     columns?: Column[];

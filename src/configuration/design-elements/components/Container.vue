@@ -1,37 +1,37 @@
 <template>
-  <div class="d-flex">
+  <div class="design-container p-2 border rounded bg-light">
+    <div v-if="title" class="mb-2 fw-bold">{{ title }}</div>
+
     <ElementWrapper
         :id="id"
-        css-classes="builder-container container-fluid"
+        :container-id="id"
         v-model="container"
+        :show-default-placeholder="true"
+        css-classes="inner-container"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import {defineProps} from 'vue';
+import { computed } from 'vue';
+import { useBuilderStore } from '../../stores/builder-store';
 import ElementWrapper from './ElementWrapper.vue';
-import {useElementContainer} from '../../../composables/useElementContainer';
+import type { FormElement } from '../../../types/builder';
 
+const props = defineProps<{
+  id: string;                   // uniqueId of THIS container element
+  title?: string;
+}>();
 
+const store = useBuilderStore();
 
-const {id} = defineProps({
-  id: {
-    required: true,
-    type: String
-  }
+const container = computed<FormElement[]>({
+  get: () => store.fetchChildComponents(props.id),
+  set: (updated) => store.setChildComponents(props.id, updated),
 });
-
-const {container} = useElementContainer(id);
-
 </script>
 
-
-<style lang="scss">
-.builder-container {
-  height: 200px;
-  display: flex;
-  flex-grow: 1;
-  background-color: whitesmoke;
-}
+<style scoped>
+.design-container { min-height: 80px; }
+:deep(.inner-container) { min-height: 120px; }
 </style>
