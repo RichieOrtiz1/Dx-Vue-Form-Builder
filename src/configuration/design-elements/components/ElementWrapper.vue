@@ -1,83 +1,71 @@
 
-
-
 <template>
-  <div class="custom-drop-zone container-fluid w-100"
-       :class="cssClasses"
-       @dragover.prevent
-       @drop="onExternalDrop"
-       @dragleave="onDragLeave">
+  <div class="custom-drop-zone container-fluid w-100" :class="cssClasses" @dragover.prevent @drop="onExternalDrop" @dragleave="onDragLeave">
     <Placeholder v-if="childElements.length === 0" :highlight="isDragging" />
 
     <div class="row w-100 m-0" style="padding-bottom: 50px">
-      <!-- Drop zone before first item -->
-      <div v-if="childElements.length > 0"
-           class="drop-zone-between w-100"
-           :class="{ 'hovered': hoveringIndex === 0 }"
-           @dragover.prevent="onDragOverItem($event, 0)"
-           @drop.prevent="onInternalDrop(0, $event)"
-           :key="`drop-zone-start`">
-      </div>
+      <div v-for="(field, index) in childElements"
+           :key="field.uniqueId"
+           :class="getColumnClass(field)"
+           class="element-container"
+      >
+        <div class="draggable-item position-relative"
+             :class="{ 'hovered': hoveringIndex === index }"
+             draggable="true"
+             @dragstart="onDragStart(index, $event)"
+             @dragover.prevent="onDragOverItem($event, index)"
+             @drop.prevent="onInternalDrop(index, $event)"
+             @dragend="onDragLeave"
+             @mouseover="hoveredItemIndex = index"
+             @dragover="handleDragOver"
+             @dragleave="handleDragLeave"
+             @drop="handleDrop"
+             @mouseleave="hoveredItemIndex = null">
 
-      <template v-for="(field, index) in childElements" :key="field.uniqueId">
-        <div :class="getColumnClass(field)"
-             class="element-container">
-          <div class="draggable-item position-relative"
-               :class="{ 'hovered': hoveringIndex === index }"
-               draggable="true"
-               @dragstart="onDragStart(index, $event)"
-               @dragend="onDragLeave"
-               @mouseover="hoveredItemIndex = index"
-               @mouseleave="hoveredItemIndex = null">
-
-            <!-- Hover Controls -->
-            <div v-show="hoveredItemIndex === index" class="element-controls">
-              <div class="btn-group">
-                <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
-                  <i class="bi bi-files"></i>
-                </button>
-                <button class="btn btn-sm btn-light" @click="editElement(field)" title="Edit">
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-sm btn-light" @click="removeElement(index)" title="Remove">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </div>
-              <!-- Column Size Controls -->
-              <div class="col-size-controls ms-2">
-                <button class="btn btn-sm btn-light"
-                        @click="decreaseColSpan(field)"
-                        :disabled="!canDecreaseColumns(field)"
-                        title="Decrease width">
-                  <i class="bi bi-arrow-bar-left"></i>
-                </button>
-                <span class="mx-2">{{ field.colspan || 12 }}</span>
-                <button class="btn btn-sm btn-light"
-                        @click="increaseColSpan(field)"
-                        :disabled="!canIncreaseColumns(field)"
-                        title="Increase width">
-                  <i class="bi bi-arrow-bar-right"></i>
-                </button>
-              </div>
+          <!-- Hover Controls -->
+          <div v-show="hoveredItemIndex === index" class="element-controls">
+            <div class="btn-group">
+              <button class="btn btn-sm btn-light" @click="cloneElement(field)" title="Clone">
+                <i class="bi bi-files"></i>
+              </button>
+              <button class="btn btn-sm btn-light" @click="editElement(field)" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-sm btn-light" @click="removeElement(index)" title="Remove">
+                <i class="bi bi-trash"></i>
+              </button>
             </div>
-
-            <div class="form-group mb-2">
-              <component :is="resolveComponent(field)" v-bind="field.props" />
+            <!-- Column Size Controls -->
+            <div class="col-size-controls ms-2">
+              <button class="btn btn-sm btn-light" @click="decreaseColSpan(field)"
+                      :disabled="!canDecreaseColumns(field)" title="Decrease width">
+                <i class="bi bi-arrow-bar-left"></i>
+              </button>
+              <span class="mx-2">{{ field.colspan || 12 }}</span>
+              <button class="btn btn-sm btn-light" @click="increaseColSpan(field)"
+                      :disabled="!canIncreaseColumns(field)" title="Increase width">
+                <i class="bi bi-arrow-bar-right"></i>
+              </button>
             </div>
           </div>
 
-          <!-- Drop zone after each item -->
-          <div class="drop-zone-between w-100"
-               :class="{ 'hovered': hoveringIndex === index + 1 }"
-               @dragover.prevent="onDragOverItem($event, index + 1)"
-               @drop.prevent="onInternalDrop(index + 1, $event)"
-               :key="`drop-zone-${field.uniqueId}`">
+          <div class="form-group mb-2">
+            <component :is="resolveComponent(field)" v-bind="field.props" />
           </div>
         </div>
-      </template>
+      </div>
+      <!-- Drop area AFTER the last item -->
+      <div
+          class="drop-zone-after"
+          @dragover.prevent="onDragOverItem($event, childElements.length)"
+          @drop.prevent="onInternalDrop(childElements.length, $event)"
+      >
+      </div>
+
     </div>
   </div>
 </template>
+
 
 
 <script setup lang="ts">
@@ -88,7 +76,7 @@ import Placeholder from './Placeholder.vue';
 import { resolveControlComponent } from "../../form-components";
 import { resolveDesignComponent } from "../design-elements";
 
-defineProps<{
+const props = defineProps<{
   id: string;
   cssClasses?: string;
 }>();
@@ -100,6 +88,7 @@ const { isDragging } = store;
 const draggedIndex = ref<number | null>(null);
 const hoveringIndex = ref<number | null>(null);
 const hoveredItemIndex = ref<number | null>(null);
+
 
 const resolveComponent = (element: FormElement) => {
   return element.classification === ElementClassification.CONTROL
@@ -150,7 +139,7 @@ const increaseColSpan = (element: FormElement) => {
   element.colspan = (element.colspan || 12) + 1;
 };
 
-// Drag and drop methods
+// Keep your existing drag and drop methods
 function onDragStart(index: number, event: DragEvent) {
   if (!event.dataTransfer) return;
 
@@ -178,7 +167,6 @@ function onDragLeave(event: DragEvent) {
 }
 
 function onInternalDrop(dropIndex: number, event: DragEvent) {
-  event.preventDefault();
   event.stopPropagation();
 
   let sourceIndex = draggedIndex.value;
@@ -191,10 +179,9 @@ function onInternalDrop(dropIndex: number, event: DragEvent) {
     return;
   }
 
-  const actualDropIndex = dropIndex > sourceIndex ? dropIndex - 1 : dropIndex;
   const items = [...childElements.value];
   const [movedItem] = items.splice(sourceIndex, 1);
-  items.splice(actualDropIndex, 0, movedItem);
+  items.splice(dropIndex, 0, movedItem);
   childElements.value = items;
 
   draggedIndex.value = null;
@@ -203,7 +190,6 @@ function onInternalDrop(dropIndex: number, event: DragEvent) {
 }
 
 function onExternalDrop(event: DragEvent) {
-  event.preventDefault();
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
 
@@ -212,6 +198,8 @@ function onExternalDrop(event: DragEvent) {
 
   try {
     const newElement = JSON.parse(raw) as FormElement;
+    if (!newElement || typeof newElement !== 'object') return;
+
     if (!isValidFormElement(newElement)) {
       console.warn('Invalid form element structure');
       return;
@@ -223,10 +211,26 @@ function onExternalDrop(event: DragEvent) {
     console.warn('Invalid external drop payload:', error);
   }
 
-  draggedIndex.value = null;
-  hoveringIndex.value = null;
-  store.isDragging = false;
+  onDragLeave(event);
 }
+
+const isDragOver = ref(false);
+
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  isDragOver.value = true;
+};
+
+const handleDragLeave = (event: DragEvent) => {
+  event.preventDefault();
+  isDragOver.value = false;
+};
+
+const handleDrop = (event: DragEvent) => {
+  isDragOver.value = false;
+  // your existing drop handling
+};
+
 
 function isValidFormElement(element: unknown): element is FormElement {
   const formElement = element as FormElement;
@@ -251,9 +255,31 @@ function isValidFormElement(element: unknown): element is FormElement {
   padding-bottom: 25px;
 }
 
+
 .element-container {
   padding: 4px;
   height: fit-content;
+
+  &.drag-over::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background-color: #007bff;
+    z-index: 1000;
+  }
+
+  &.drag-over::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px dashed #007bff;
+    pointer-events: none;
+    z-index: 999;
+  }
+
 }
 
 .draggable-item {
@@ -302,6 +328,7 @@ function isValidFormElement(element: unknown): element is FormElement {
   align-items: center;
 }
 
+// Add button hover effects
 .btn-group .btn, .col-size-controls .btn {
   &:hover {
     background-color: #e9ecef;
@@ -313,7 +340,7 @@ function isValidFormElement(element: unknown): element is FormElement {
   width: 100%;
   border: 2px dashed transparent;
   margin-top: 10px;
-  transition: border-color 0.2s;
+  transition: border 0.2s;
 
   &.hovered {
     border-color: #007bff;
@@ -321,30 +348,4 @@ function isValidFormElement(element: unknown): element is FormElement {
   }
 }
 
-.drop-zone-between {
-  height: 8px;
-  margin: 0;
-  transition: all 0.2s ease;
-  position: relative;
-
-  &.hovered {
-    height: 20px;
-    &::after {
-      content: '';
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 50%;
-      height: 2px;
-      background-color: #007bff;
-      transform: translateY(-50%);
-    }
-  }
-}
-
-.element-container {
-  padding: 4px;
-  height: fit-content;
-  position: relative;
-}
 </style>
