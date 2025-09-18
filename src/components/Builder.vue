@@ -45,6 +45,7 @@
       <!-- Canvas -->
       <main class="col-md-9 d-flex flex-column p-3">
         <!-- Toolbar -->
+        <!-- Toolbar -->
         <div class="d-flex align-items-center gap-2 mb-2">
           <button class="btn btn-sm btn-outline-secondary" :disabled="!store.canUndo" @click="store.undo()">
             <i class="bi bi-arrow-counterclockwise me-1"></i>Undo
@@ -53,12 +54,17 @@
             <i class="bi bi-arrow-clockwise me-1"></i>Redo
           </button>
 
+          <!-- NEW: JSON button -->
+          <button class="btn btn-sm btn-outline-secondary" @click="openSchema">
+            <i class="bi bi-braces me-1"></i>JSON
+          </button>
+
           <div class="ms-auto small text-muted">
-            <span v-if="savedAt">Saved • {{ savedAt }}</span>
+            <span v-if="savedAt">Saved: {{ savedAt }}</span>
           </div>
         </div>
 
-        <div class="form-canvas">
+        <div class="form-canvas" @mousedown.self="store.setSelected(null)">
           <ElementWrapper
               :id="rootId"
               :container-id="rootId"
@@ -69,6 +75,30 @@
         </div>
       </main>
     </div>
+
+    <!-- JSON modal -->
+    <div v-if="showSchema" class="fb-modal-backdrop" @click.self="closeSchema">
+      <div class="fb-modal" role="dialog" aria-modal="true" aria-label="Form JSON">
+        <div class="fb-modal-header">
+          <h6 class="m-0">Form JSON</h6>
+          <button class="btn btn-sm btn-light" @click="closeSchema" title="Close">
+            <i class="bi bi-x"></i>
+          </button>
+        </div>
+
+        <div class="fb-modal-actions">
+          <button class="btn btn-sm btn-outline-secondary" @click="copySchema">
+            <i class="bi bi-clipboard me-1"></i>Copy
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" @click="downloadSchema">
+            <i class="bi bi-download me-1"></i>Download
+          </button>
+        </div>
+
+        <pre class="fb-json"><code>{{ prettySchema }}</code></pre>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -117,13 +147,14 @@ const filteredPalette = computed(() => {
 
 function onPaletteDragStart(item: any, event: DragEvent) {
   if (!event.dataTransfer) return;
-  // Send the descriptor as-is; the factory will adapt it.
+  // Custom, unambiguous MIME for our palette
+  event.dataTransfer.setData('application/x-builder-def', JSON.stringify(item));
+  // (optional) Keep JSON for legacy, but not required
   event.dataTransfer.setData('application/json', JSON.stringify(item));
-  // Fallback so drag is recognized by all browsers/OSes
+  // Plain text ONLY for OS drag visuals; we won't accept it in the drop
   event.dataTransfer.setData('text/plain', String(item.type || item.title || 'palette-item'));
-  event.dataTransfer.effectAllowed = 'copyMove';
+  event.dataTransfer.effectAllowed = 'copy';
 }
-
 // Autosave (debounced)
 const savedAt = ref<string | null>(null);
 let saveTimer: number | undefined;
@@ -141,6 +172,45 @@ watch(
     },
     { deep: true }
 );
+
+
+// JSON modal state
+const showSchema = ref(false);
+const prettySchema = computed(() => JSON.stringify(store.formElements, null, 2));
+
+const openSchema = () => { showSchema.value = true; };
+const closeSchema = () => { showSchema.value = false; };
+
+const copySchema = async () => {
+  try {
+    await navigator.clipboard.writeText(prettySchema.value);
+  } catch {
+    // fallback: select text
+    const sel = window.getSelection?.();
+    if (!sel) return;
+    const range = document.createRange();
+    const el = document.querySelector('.fb-json');
+    if (!el) return;
+    range.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand?.('copy');
+    sel.removeAllRanges();
+  }
+};
+
+const downloadSchema = () => {
+  const blob = new Blob([prettySchema.value], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `form-schema-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
 </script>
 
 <style lang="scss" scoped>
@@ -187,4 +257,47 @@ watch(
   min-height: 100%;
   width: 100%;
 }
+
+.fb-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1050;
+}
+
+.fb-modal {
+  width: min(900px, 92vw);
+  max-height: 80vh;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.fb-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef0f3;
+  background: #f8fafc;
+}
+
+.fb-modal-actions {
+  display: flex; gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #eef0f3;
+  background: #fff;
+}
+
+.fb-json {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
 </style>

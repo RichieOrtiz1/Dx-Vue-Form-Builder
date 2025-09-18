@@ -1,18 +1,184 @@
-body {
-  overflow: hidden;
-  background-color: rgba(61, 171, 245, 0.09);
+/* ==== Design tokens (easy to tweak) ==== */
+:root {
+  --fb-bg: #ffffff;
+  --fb-muted: #f6f7fb;
+  --fb-border: #e5e7eb;
+  --fb-text: #111827;
+
+  --fb-blue: #0d6efd;
+  --fb-blue-100: #e9f2ff;
+  --fb-blue-200: #d7e8ff;
+  --fb-blue-300: #c0dcff;
+  --fb-blue-600: #0a58ca;
+  --fb-blue-shadow: rgba(13,110,253,.18);
+
+  --fb-radius: 10px;
+  --fb-radius-lg: 14px;
+  --fb-shadow: 0 2px 10px rgba(17, 24, 39, 0.08);
 }
 
-/* Global styles for all scrollbars */
-* {
-  scrollbar-width: thin; /* For Firefox */
+/* ==== Canvas & Zones ==== */
+.custom-drop-zone {
+  position: relative;
+  min-height: 300px;
+  padding: 25px;
+  border: 2px dashed var(--fb-border);
+  background-color: var(--fb-muted);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  border-radius: var(--fb-radius-lg);
 }
 
-*::-webkit-scrollbar {
-  width: 6px; /* For WebKit browsers */
+.custom-drop-zone.dragging {
+  outline: 2px dashed var(--fb-blue-300);
+  outline-offset: 4px;
 }
 
-*::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.3);
+.element-container {
+  height: fit-content;
+  position: relative;
+  padding-left: 6px;
+  padding-right: 6px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+/* Make empty containers/columns easier to hit */
+:deep(.inner-container),
+:deep(.column-drop) {
+  min-height: 160px;
+  padding: 8px;
+  border-radius: var(--fb-radius);
+  border: 2px dashed var(--fb-blue-200);
+  background: var(--fb-muted);
+}
+
+/* ==== Cards (draggables) ==== */
+.draggable-item {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--fb-border);
+  //border-radius: 8px;
+  //padding: 12px;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+  cursor: move;
+  //min-height: 72px;
+  box-shadow: var(--fb-shadow);
+  overflow: visible;
+}
+
+.draggable-item.hovered,
+.draggable-item.selected,
+.draggable-item.resizing {
+  background: #eef6ff;
+  border-color: var(--fb-blue);
+  box-shadow: 0 0 0 2px var(--fb-blue-shadow);
+}
+
+/* ==== Toolbar ==== */
+.element-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #dee2e6;
+  border-radius: 999px;
+  padding: 2px 6px;
+  z-index: 3;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* ==== Drop indicator ==== */
+.insertion-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 3px solid var(--fb-blue, #0d6efd);
+  box-shadow: 0 0 8px rgba(13,110,253,.35);
+  z-index: 20;
+  pointer-events: none;
+
+  /* animation as before */
+  transform: translateY(0);
+  opacity: 0;
+  transition: transform 120ms ease, opacity 120ms ease;
+
+  &.active {
+    opacity: 1;
+  }
+
+  .indicator-label {
+    position: absolute;
+    top: -12px; /* sits above the line */
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0d6efd;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,.15);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+}
+
+.insertion-indicator.active {
+  opacity: 1;
+}
+
+/* ==== Preview pointer behavior ==== */
+.preview-field { pointer-events: auto; }
+.preview-field.is-control { pointer-events: none; }
+
+/* ==== Resize handle & badge ==== */
+.resize-handle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
+  background: #fff;
+  border: 1px solid #6c757d;
+  cursor: ew-resize;
+  z-index: 4;
+  opacity: 0;
+  transition: opacity .12s ease, border-color .12s ease, background-color .12s ease;
 }
+
+/* Show on hover/selected/resizing */
+.draggable-item.hovered .resize-handle,
+.draggable-item.selected .resize-handle,
+.draggable-item.resizing .resize-handle {
+  opacity: 1;
+  border-color: #0d6efd;
+  background: #e7f1ff;
+}
+
+/* Position both sides */
+.resize-handle.left  { left:  -6px; }
+.resize-handle.right { right: -6px; }
+
+.resize-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 4;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1;
+  background: #fff;
+  border: 1px solid var(--fb-blue);
+  border-radius: 999px;
+  color: var(--fb-blue);
+}
+
+/* ==== Global dragging behavior ==== */
+:global(body.resizing-col) { user-select: none !important; }

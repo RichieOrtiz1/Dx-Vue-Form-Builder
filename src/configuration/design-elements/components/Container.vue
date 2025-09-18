@@ -1,5 +1,5 @@
 <template>
-  <div class="design-container p-2 border rounded bg-light">
+  <div class="design-container p-2 border rounded bg-light"  @mousedown.self="store.setSelected(null)">
     <div v-if="title" class="mb-2 fw-bold">{{ title }}</div>
     <ElementWrapper
         :id="id"

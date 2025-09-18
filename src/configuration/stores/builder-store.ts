@@ -48,15 +48,17 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
     // Return a LIVE reference to the children array for either:
     // - a container (element) identified by its uniqueId, or
     // - a column identified by its column.id
+    // builder-store.ts
+
     function getChildrenArray(containerId: string): FormElement[] {
-        // 1) Try to find a FormElement with uniqueId === containerId
+        // 1) container by element uniqueId
         const asElement = fetchElement(containerId);
         if (asElement) {
             if (!asElement.childComponents) asElement.childComponents = [];
             return asElement.childComponents;
         }
 
-        // 2) Otherwise, walk the tree to find a Column whose id === containerId
+        // 2) column by column.id (walk the tree)
         const stack: FormElement[] = [...formElements.value];
         while (stack.length) {
             const node = stack.pop()!;
@@ -70,22 +72,20 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
             }
             if (node?.childComponents?.length) stack.push(...node.childComponents);
         }
-
-        // Fallback to root (shouldn't usually happen for nested wrappers)
+        // 3) fallback to root
         return formElements.value;
     }
 
-
-    // --- childComponents helpers -------------------------------
     const fetchChildComponents = (containerId: string): FormElement[] => {
         return getChildrenArray(containerId);
     };
 
     const setChildComponents = (containerId: string, components: FormElement[]) => {
         const arr = getChildrenArray(containerId);
-        // mutate in place to preserve the same array reference
+        // mutate in place to preserve reactivity
         arr.splice(0, arr.length, ...components);
     };
+
 
     // --- columns helpers ---------------------------------------
     const initializeColumns = (uniqueId: string, colCount: number) => {
@@ -162,6 +162,13 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
     // --- schema export -----------------------------------------
     const schemaJson = computed(() => JSON.stringify(formElements.value));
 
+    // --- selection (global) ---
+    const selectedId = ref<string | null>(null);
+    const setSelected = (id: string | null) => {
+        selectedId.value = id;
+    };
+
+
     // --- expose everything -------------------------------------
     return {
         // state
@@ -196,6 +203,8 @@ export const useBuilderStore = defineStore('formConfigStore', () => {
         clearDrag,
         canUndo,
         canRedo,
+        selectedId,
+        setSelected,
         // export
         schemaJson,
     };
