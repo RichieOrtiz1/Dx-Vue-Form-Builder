@@ -9,6 +9,8 @@ export function cloneElementDeep(el: FormElement): FormElement {
             : undefined,
         columns: el.columns
             ? el.columns.map(col => ({
+                id: crypto.randomUUID(),                           // NEW: fresh column id
+                colspan: col.colspan,                              // keep span if used
                 childComponents: (col.childComponents ?? []).map(cloneElementDeep),
             }))
             : undefined,

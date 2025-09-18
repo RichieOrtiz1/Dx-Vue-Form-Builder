@@ -16,6 +16,8 @@ export interface ElementDefinition {
 
 
 export interface Column {
+    id: string;
+    colspan?: number;
     childComponents: FormElement[];
 }
 

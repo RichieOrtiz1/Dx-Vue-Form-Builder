@@ -2,6 +2,7 @@
   <div
       class="custom-drop-zone container-fluid w-100"
       :class="cssClasses"
+      :data-cid="containerId"
       @dragenter.stop="onDragEnter"
       @dragover.prevent.stop="onContainerDragOver"
       @drop.prevent.stop="onDropAtHover"
@@ -29,7 +30,7 @@
             }"
               :draggable="resizingIndex !== index"
               @click.stop="select(field.uniqueId)"
-              @dragstart="onDragStart(index, $event)"
+              @dragstart.stop="onDragStart(index, $event)"
               @dragend="onDragEnd"
               @mouseover="hoveredItemIndex = index"
               @mouseleave="hoveredItemIndex = null"
@@ -57,10 +58,14 @@
 
             <!-- Preview -->
             <div class="form-group mb-2">
-              <div class="preview-field">
-                <component :is="resolveComponent(field)" v-bind="field.props" />
+              <div
+                  class="preview-field"
+                  :class="{ 'is-control': field.classification === ElementClassification.CONTROL }"
+              >
+                <component :is="resolveComponent(field)" v-bind="componentProps(field)" />
               </div>
             </div>
+
 
             <!-- Resize handle -->
             <div
@@ -81,8 +86,9 @@
   </div>
 </template>
 
+
 <script setup lang="ts">
-import {ref, computed, type ComponentPublicInstance, onMounted, onBeforeUnmount, nextTick} from 'vue';
+import { ref, computed, nextTick, type ComponentPublicInstance, onMounted, onBeforeUnmount } from 'vue';
 import { useBuilderStore } from '../../stores/builder-store';
 import { FormElement, ElementClassification } from '../../../types/builder';
 import Placeholder from './Placeholder.vue';
@@ -91,6 +97,7 @@ import { resolveDesignComponent } from '../design-elements';
 import { useRafThrottle } from '../../../composables/useRafThrottle';
 import { useAutoScroll } from '../../../composables/useAutoScroll';
 import { cloneElementDeep } from '../../../util/clone';
+import {createFormElement} from '../../../types/factories';
 
 const props = defineProps<{
   id: string;
@@ -153,9 +160,19 @@ function toHTMLElement(node: PossibleRef): HTMLElement | null {
 }
 
 /* ---------- DnD ---------- */
-function onDragEnter() { enterCount.value++; }
+function onDragEnter() {
+  enterCount.value++;
+  store.isDragging = true;
+  console.debug('[enter]', props.containerId);
+}
 
 function onDragStart(index: number, e: DragEvent) {
+
+  if (resizingIndex.value !== null) {
+    e.preventDefault();
+    return;
+  }
+
   if (!e.dataTransfer) return;
   const uid = childElements.value[index]?.uniqueId;
   draggedIndex.value = index;
@@ -210,7 +227,15 @@ const handleDragOver = useRafThrottle((e: DragEvent) => {
   hoveringIndex.value = index;
   autoScroll?.onMove(y);
 });
-function onContainerDragOver(e: DragEvent) { handleDragOver(e); }
+
+
+function onContainerDragOver(e: DragEvent) {
+  handleDragOver(e);
+
+  (rowRef.value)?.classList.add('dragging');
+  console.debug('[over]', props.containerId, e.dataTransfer?.types);
+}
+
 
 function onDragLeave() {
   enterCount.value = Math.max(0, enterCount.value - 1);
@@ -218,10 +243,12 @@ function onDragLeave() {
     hardReset();
     autoScroll?.stop();
   }
+  (rowRef.value)?.classList.remove('dragging');
 }
 
 function onDropAtHover(e: DragEvent) {
   e.preventDefault();
+  console.debug('[drop]', props.containerId, e.dataTransfer?.types);
   const dropIndex = hoveringIndex.value ?? childElements.value.length;
   const payload = store.drag;
 
@@ -258,21 +285,25 @@ function onDropAtHover(e: DragEvent) {
 
   // EXTERNAL
   const dt = e.dataTransfer;
-  if (dt?.types?.includes('application/json')) {
+  if (dt) {
     try {
-      const raw = dt.getData('application/json');
-      if (raw) {
-        const parsed = JSON.parse(raw) as FormElement;
-        parsed.uniqueId = crypto.randomUUID();
+      let def: any | null = null;
+
+      if (dt.types?.includes('application/json')) {
+        const raw = dt.getData('application/json');
+        if (raw) def = JSON.parse(raw);
+      } else if (dt.types?.includes('text/plain')) {
+        // Fallback for simpler palettes; at least carry a type
+        const t = dt.getData('text/plain');
+        def = { type: t };
+      }
+
+      if (def) {
+        const newEl = createFormElement(def);
         store.pushHistory?.();
         const items = [...childElements.value];
-        items.splice(dropIndex, 0, parsed);
+        items.splice(dropIndex, 0, newEl);
         childElements.value = items;
-
-        if (!parsed.columns && parsed.props?.colCount && parsed.classification === ElementClassification.DESIGN) {
-          parsed.columnCount = parsed.props.colCount;
-          parsed.columns = Array.from({ length: parsed.props.colCount }, () => ({ childComponents: [] }));
-        }
       }
     } catch (err) {
       console.warn('Invalid external drop payload:', err);
@@ -348,35 +379,28 @@ async function onResizeEnd() {
   const idx = resizingIndex.value;
   const el = childElements.value[idx];
   const uid = el.uniqueId;
-
   const finalCols = Math.max(1, Math.min(12, tentativeColspan.value));
-  const stored = colNum(el.colspan);          // ← read the committed number only
+  const stored = colNum(el.colspan); // compare against stored, not live
 
-  // Commit if changed (compare against the stored value, not currentCols/live)
   if (stored !== finalCols) {
     store.pushHistory?.();
-    el.colspan = finalCols;                   // commit to reactive state
+    el.colspan = finalCols; // commit to reactive state
   }
 
-  // Hold live preview at the final value through the patch to avoid a flash
+  // hold live preview at final value through the patch
   liveColspan.value[uid] = finalCols;
 
-  // Wait for DOM/class update, then clear live state (or keep it — both OK)
   await nextTick();
   requestAnimationFrame(() => {
-    delete liveColspan.value[uid];            // or keep it if you prefer
+    delete liveColspan.value[uid]; // safe to keep too; either way works
   });
 
-  // Cleanup
   resizingIndex.value = null;
   tentativeColspan.value = 12;
   document.body.classList.remove('resizing-col');
   document.body.style.cursor = '';
   teardownResizeListeners();
 }
-
-
-
 
 function teardownResizeListeners() {
   window.removeEventListener('mousemove', onResizeMove as any);
@@ -401,6 +425,13 @@ const indicatorStyle = computed(() => {
   const tRect = target.getBoundingClientRect();
   return { top: `${tRect.top - rowRect.top}px` };
 });
+
+const componentProps = (el: FormElement) => {
+  // Pass uniqueId as "id" to design elements (Container, Columns, etc.)
+  return el.classification === ElementClassification.DESIGN
+      ? { ...el.props, id: el.uniqueId }
+      : el.props;
+};
 </script>
 
 <style scoped lang="scss">
@@ -461,7 +492,11 @@ const indicatorStyle = computed(() => {
   box-shadow: 0 0 6px rgba(13,110,253,.35); z-index: 2;
 }
 
-.preview-field { pointer-events: none; }
+/* Allow interactions by default (needed so Container/Column inner ElementWrappers can receive dragover/drop) */
+.preview-field { pointer-events: auto; }
+
+/* Disable pointer events ONLY for control previews, so clicks don't hit inputs while dragging */
+.preview-field.is-control { pointer-events: none; }
 
 /* Resize handle: only visible when hovered/selected/resizing */
 .resize-handle {
@@ -502,7 +537,19 @@ const indicatorStyle = computed(() => {
   color: #0d6efd;
 }
 
+
+:deep(.inner-container),
+:deep(.column-drop) {
+  min-height: 160px;
+  padding: 8px;
+}
+
+
+.custom-drop-zone.dragging {
+  outline: 2px dashed rgba(13,110,253,.35);
+  outline-offset: 4px;
+}
+
 /* Prevent selecting text while resizing */
 :global(body.resizing-col) { user-select: none !important; }
 </style>
-

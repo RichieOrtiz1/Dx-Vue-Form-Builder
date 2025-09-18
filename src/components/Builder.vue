@@ -27,13 +27,18 @@
           />
         </div>
 
+        <!-- Palette -->
         <div class="custom-list px-2" role="list">
-          <DraggableControlItem
-              v-for="item in filteredPalette"
-              :key="item.type || item.title || item.icon"
-              :descriptor="item"
-              role="listitem"
-          />
+          <div
+              v-for="(item, i) in filteredPalette"
+              :key="(item.type ?? item.title ?? 'item') + ':' + i"
+              class="draggable-wrapper"
+              draggable="true"
+              :title="item.title"
+              @dragstart="onPaletteDragStart(item, $event)"
+          >
+            <DraggableControlItem :descriptor="item" role="listitem" />
+          </div>
         </div>
       </aside>
 
@@ -110,6 +115,14 @@ const filteredPalette = computed(() => {
   );
 });
 
+function onPaletteDragStart(item: any, event: DragEvent) {
+  if (!event.dataTransfer) return;
+  // Send the descriptor as-is; the factory will adapt it.
+  event.dataTransfer.setData('application/json', JSON.stringify(item));
+  // Fallback so drag is recognized by all browsers/OSes
+  event.dataTransfer.setData('text/plain', String(item.type || item.title || 'palette-item'));
+  event.dataTransfer.effectAllowed = 'copyMove';
+}
 
 // Autosave (debounced)
 const savedAt = ref<string | null>(null);
